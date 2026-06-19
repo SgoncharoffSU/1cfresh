@@ -4,17 +4,12 @@
 
   "features": {
     "ghcr.io/devcontainers/features/node:1": { "version": "20" },
-    "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/devcontainers/features/postgres:1": { "version": "15" }
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   },
 
-  "forwardPorts": [8000, 3000, 5432, 6379],
-  "portsAttributes": {
-    "8000": { "label": "FastAPI backend", "onAutoForward": "notify" },
-    "3000": { "label": "Next.js frontend", "onAutoForward": "openBrowser" }
-  },
+  "forwardPorts": [8000, 3000],
 
-  "postCreateCommand": "pip install -r requirements.txt && cd frontend && npm install && cp -n .env.example .env && sudo apt-get install -y redis-server",
+  "postCreateCommand": "pip install -r requirements.txt && cd frontend && npm install",
 
   "customizations": {
     "vscode": {
@@ -24,16 +19,13 @@
         "ms-python.vscode-pylance",
         "bradlc.vscode-tailwindcss",
         "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
-        "ms-azuretools.vscode-docker"
+        "esbenp.prettier-vscode"
       ],
       "settings": {
-        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "workbench.colorTheme": "Default Dark Modern",
         "editor.formatOnSave": true,
         "editor.defaultFormatter": "esbenp.prettier-vscode",
-        "[python]": { "editor.defaultFormatter": "ms-python.python" },
-        "workbench.colorTheme": "Default Dark Modern",
-        "workbench.preferredDarkColorTheme": "Default Dark Modern"
+        "[python]": { "editor.defaultFormatter": "ms-python.python" }
       }
     }
   },

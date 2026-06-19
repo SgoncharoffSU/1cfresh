@@ -1,0 +1,16 @@
+import sys, paramiko
+sys.stdout.reconfigure(encoding='utf-8')
+cl = paramiko.SSHClient()
+cl.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+cl.connect('159.194.225.55', 22, 'deploy', 'Deploy2024!#', timeout=30)
+def sx(cmd, t=15):
+    _, o, e = cl.exec_command(cmd, timeout=t)
+    out = o.read().decode('utf-8','replace').strip()
+    err = e.read().decode('utf-8','replace').strip()
+    if out: print(out)
+    if err: print('[err]', err[:200])
+print('=== iptables port 8018 ===')
+sx('iptables -L INPUT -n | grep -E "8018|DROP|REJECT" || echo "no rules found"')
+print('\n=== Test API via external IP ===')
+sx('curl -s --max-time 5 "http://159.194.225.55:8018/api/v1/documents/?tenant_id=1" | head -c 200 || echo "FAILED"')
+cl.close()

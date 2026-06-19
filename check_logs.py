@@ -1,0 +1,15 @@
+import sys, paramiko
+sys.stdout.reconfigure(encoding='utf-8')
+cl = paramiko.SSHClient()
+cl.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+cl.connect('159.194.225.55', 22, 'deploy', 'Deploy2024!#', timeout=20)
+def sx(cmd):
+    _, o, e = cl.exec_command(cmd, timeout=30)
+    out = o.read().decode('utf-8','replace').strip()
+    err = e.read().decode('utf-8','replace').strip()
+    if out: print(out[-4000:])
+    if err: print('[err]', err[-1000:])
+sx('pm2 logs buhgsaas-frontend --lines 50 --nostream 2>&1 | tail -60')
+print('---')
+sx('pm2 describe buhgsaas-frontend 2>&1 | grep -E "status|pid|uptime|restarts"')
+cl.close()

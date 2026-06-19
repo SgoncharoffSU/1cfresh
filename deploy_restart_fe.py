@@ -1,0 +1,11 @@
+import sys, paramiko, time
+sys.stdout.reconfigure(encoding='utf-8')
+cl = paramiko.SSHClient()
+cl.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+cl.connect('159.194.225.55', 22, 'deploy', 'Deploy2024!#', timeout=30)
+_, o, e = cl.exec_command('pm2 restart buhgsaas-frontend', timeout=30)
+print((o.read()+e.read()).decode('utf-8','replace').strip()[-200:])
+time.sleep(3)
+_, o, e = cl.exec_command('curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/', timeout=15)
+print("HTTP:", (o.read()+e.read()).decode())
+cl.close()

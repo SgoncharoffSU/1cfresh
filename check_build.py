@@ -1,0 +1,18 @@
+import sys, paramiko
+sys.stdout.reconfigure(encoding='utf-8')
+cl = paramiko.SSHClient()
+cl.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+cl.connect('159.194.225.55', 22, 'deploy', 'Deploy2024!#', timeout=30)
+def sx(cmd, t=30):
+    _, o, e = cl.exec_command(cmd, timeout=t)
+    out = o.read().decode('utf-8','replace').strip()
+    err = e.read().decode('utf-8','replace').strip()
+    if out: print(out[-1500:])
+    if err: print('[err]', err[-1500:])
+print('=== Frontend health ===')
+sx('curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/')
+print('\n=== PM2 frontend logs ===')
+sx('pm2 logs buhgsaas-frontend --lines 20 --nostream 2>&1 | tail -20')
+print('\n=== Build errors (last 50 lines of build) ===')
+sx('cd /var/www/integration-1c/frontend && npm run build 2>&1 | tail -50', t=120)
+cl.close()

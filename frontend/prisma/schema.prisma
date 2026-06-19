@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole       { ACCOUNTANT CLIENT ADMIN }
+enum DocumentType   { INVOICE ACT UPD CONTRACT BILL }
+enum DocumentStatus { DRAFT SENT SIGNED REJECTED OVERDUE }
+enum TaskPriority   { LOW MEDIUM HIGH URGENT }
+enum TaskStatus     { TODO IN_PROGRESS DONE CANCELLED }
+enum Channel        { TG MAX VK INTERNAL_CHAT ONE_C MOYSKLAD B24 DIADOC }
+
+model Company {
+  id             String             @id @default(cuid())
+  name           String
+  users          User[]
+  counterparties Counterparty[]
+  documents      DocumentRegistry[]
+  createdAt      DateTime           @default(now())
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  role      UserRole @default(CLIENT)
+  avatarUrl String?
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  tasks     Task[]
+  createdAt DateTime @default(now())
+}
+
+model Counterparty {
+  id          String             @id @default(cuid())
+  name        String
+  inn         String
+  kpp         String?
+  email       String?
+  phone       String?
+  diadocBoxId String?
+  companyId   String
+  company     Company            @relation(fields: [companyId], references: [id])
+  documents   DocumentRegistry[]
+}
+
+model DocumentRegistry {
+  id             String         @id @default(cuid())
+  number         String
+  type           DocumentType
+  status         DocumentStatus @default(DRAFT)
+  counterpartyId String
+  counterparty   Counterparty   @relation(fields: [counterpartyId], references: [id])
+  companyId      String
+  company        Company        @relation(fields: [companyId], references: [id])
+  amount         Float
+  currency       String         @default("RUB")
+  date           DateTime
+  dueDate        DateTime?
+  onecGuid       String?
+  pdfUrl         String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([companyId, status])
+  @@index([counterpartyId])
+}
+
+model ChatMessage {
+  id          String   @id @default(cuid())
+  channel     Channel
+  senderId    String
+  senderName  String
+  text        String   @db.Text
+  attachments String   @default("[]") @db.Text
+  timestamp   DateTime @default(now())
+  read        Boolean  @default(false)
+  clientId    String?
+  tasks       Task[]   @relation("MsgTasks")
+
+  @@index([channel, clientId])
+}
+
+model Task {
+  id             String        @id @default(cuid())
+  title          String
+  description    String?       @db.Text
+  priority       TaskPriority  @default(MEDIUM)
+  status         TaskStatus    @default(TODO)
+  assigneeId     String?
+  assignee       User?         @relation(fields: [assigneeId], references: [id])
+  clientId       String?
+  counterpartyId String?
+  dueDate        DateTime?
+  quotedText     String?       @db.Text
+  sourceMessages ChatMessage[] @relation("MsgTasks")
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([status, priority])
+  @@index([assigneeId])
+}

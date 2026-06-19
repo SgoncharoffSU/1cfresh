@@ -5,8 +5,7 @@
   "features": {
     "ghcr.io/devcontainers/features/node:1": { "version": "20" },
     "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/devcontainers/features/postgres:1": { "version": "15" },
-    "ghcr.io/devcontainers/features/redis:1": {}
+    "ghcr.io/devcontainers/features/postgres:1": { "version": "15" }
   },
 
   "forwardPorts": [8000, 3000, 5432, 6379],
@@ -15,7 +14,7 @@
     "3000": { "label": "Next.js frontend", "onAutoForward": "openBrowser" }
   },
 
-  "postCreateCommand": "pip install -r requirements.txt && cd frontend && npm install && cp -n .env.example .env",
+  "postCreateCommand": "pip install -r requirements.txt && cd frontend && npm install && cp -n .env.example .env && sudo apt-get install -y redis-server",
 
   "customizations": {
     "vscode": {

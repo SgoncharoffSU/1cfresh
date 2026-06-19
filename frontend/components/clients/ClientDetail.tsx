@@ -129,6 +129,26 @@ function TasksTab({ clientId }: { clientId: string }) {
 }
 
 
+// ─── Channel icons for documents ───────────────────────────────────────────────
+const DOC_CHANNEL_ICON: Record<string, React.ReactNode> = {
+  TG:    <TelegramIcon className="h-3 w-3" />,
+  EMAIL: <Mail className="h-3 w-3" />,
+};
+
+// ─── Documents sub-tabs ────────────────────────────────────────────────────────
+type DocSubTab = 'invoices' | 'sales' | 'factura';
+const DOC_SUB_TABS: { id: DocSubTab; label: string; type: string }[] = [
+  { id: 'invoices', label: 'Счета',         type: 'INVOICE' },
+  { id: 'sales',    label: 'Реализации',    type: 'SALE'    },
+  { id: 'factura',  label: 'Счета-фактуры', type: 'FACTURA' },
+];
+
+// ─── Documents tab ─────────────────────────────────────────────────────────────
+function DocsTab({ clientId }: { clientId: string }) {
+  const [docs,     setDocs]     = useState<ApiDocFull[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [selected, setSelected] = useState<ApiDocFull | null>(null);
+  const [subTab,   setSubTab]   = useState<DocSubTab>('invoices');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -144,6 +164,13 @@ function TasksTab({ clientId }: { clientId: string }) {
 
   useEffect(() => { load(); }, [load]);
 
+  const filtered = useMemo(() => {
+    const sub = DOC_SUB_TABS.find((s) => s.id === subTab);
+    return sub ? docs.filter((d) => d.type === sub.type) : docs;
+  }, [docs, subTab]);
+
+  const total = useMemo(() => filtered.reduce((s, d) => s + d.amount, 0), [filtered]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full gap-2 text-xs text-muted-foreground">
@@ -153,76 +180,99 @@ function TasksTab({ clientId }: { clientId: string }) {
     );
   }
 
-  if (docs.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-2 text-xs text-muted-foreground">
-        <FileText className="h-10 w-10 text-slate-100" />
-        <p>Нет документов из 1С для этого контрагента</p>
-        <button onClick={load} className="text-blue-500 hover:text-blue-700 underline">
-          Обновить
-        </button>
-      </div>
-    );
-  }
-
-
-          <thead className="bg-slate-50 border-b border-slate-100 sticky top-0">
-            <tr>
-              <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Номер</th>
-              <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Дата</th>
-              <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Статус</th>
-              <th className="text-right px-4 py-2.5 font-medium text-muted-foreground">Сумма</th>
-            </tr>
-          </thead>
-
-                <td className={cn('px-4 py-3 font-mono font-medium', doc.deletion_mark ? 'line-through text-slate-400' : 'text-slate-800')}>{doc.number}</td>
-                <td className="px-3 py-3 text-muted-foreground">
-                  {doc.date
-                    ? new Date(doc.date).toLocaleString('ru-RU', {
-                        day:'2-digit', month:'2-digit', year:'numeric',
-                        hour:'2-digit', minute:'2-digit',
-                      })
-                    : '—'}
-                </td>
-                <td className="px-3 py-3">
-                  <div className="flex flex-wrap gap-1">
-                    {doc.deletion_mark && (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-red-50 text-red-600">
-                        <Trash2 className="h-3 w-3" /> На удаление
-                      </span>
-                    )}
-                    {!doc.deletion_mark && (doc.is_posted ? (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700">
-                        <CheckCircle2 className="h-3 w-3" /> Проведён
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-500">
-                        <Circle className="h-3 w-3" /> Не проведён
-                      </span>
-                    ))}
-                    {doc.sent_via && (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-sky-50 text-sky-700">
-                        {DOC_CHANNEL_ICON[doc.sent_via] ?? null} Отправлен
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-800">
-                  {doc.amount.toLocaleString('ru-RU', { minimumFractionDigits: 0 })} ₽
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex border-b border-slate-100 bg-white px-4 flex-shrink-0">
+        {DOC_SUB_TABS.map(({ id, label }) => (
+          <button
+            key={id}
+            onClick={() => setSubTab(id)}
+            className={cn(
+              'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors',
+              subTab === id
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700',
+            )}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      {/* Footer with total */}
-      <div className="flex-shrink-0 border-t border-slate-100 px-4 py-2.5 flex justify-between items-center bg-slate-50">
-        <span className="text-xs text-muted-foreground">{docs.length} {docs.length === 1 ? 'документ' : 'документов'}</span>
-        <span className="text-xs font-semibold text-slate-800">
-          Итого: {total.toLocaleString('ru-RU')} ₽
-        </span>
-      </div>
+      {filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center flex-1 gap-2 text-xs text-muted-foreground">
+          <FileText className="h-10 w-10 text-slate-100" />
+          <p>Нет документов</p>
+          <button onClick={load} className="text-blue-500 hover:text-blue-700 underline">Обновить</button>
+        </div>
+      ) : (
+        <>
+          <div className="flex-1 overflow-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 border-b border-slate-100 sticky top-0">
+                <tr>
+                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Номер</th>
+                  <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Дата</th>
+                  <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Статус</th>
+                  <th className="text-right px-4 py-2.5 font-medium text-muted-foreground">Сумма</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {filtered.map((doc) => (
+                  <tr
+                    key={doc.id}
+                    onClick={() => setSelected(doc)}
+                    className="hover:bg-slate-50 cursor-pointer transition-colors"
+                  >
+                    <td className={cn('px-4 py-3 font-mono font-medium', doc.deletion_mark ? 'line-through text-slate-400' : 'text-slate-800')}>{doc.number}</td>
+                    <td className="px-3 py-3 text-muted-foreground">
+                      {doc.date
+                        ? new Date(doc.date).toLocaleString('ru-RU', {
+                            day:'2-digit', month:'2-digit', year:'numeric',
+                            hour:'2-digit', minute:'2-digit',
+                          })
+                        : '—'}
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {doc.deletion_mark && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-red-50 text-red-600">
+                            <Trash2 className="h-3 w-3" /> На удаление
+                          </span>
+                        )}
+                        {!doc.deletion_mark && (doc.is_posted ? (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700">
+                            <CheckCircle2 className="h-3 w-3" /> Проведён
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-500">
+                            <Circle className="h-3 w-3" /> Не проведён
+                          </span>
+                        ))}
+                        {doc.sent_via && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-sky-50 text-sky-700">
+                            {DOC_CHANNEL_ICON[doc.sent_via] ?? null} Отправлен
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-800">
+                      {doc.amount.toLocaleString('ru-RU', { minimumFractionDigits: 0 })} ₽
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex-shrink-0 border-t border-slate-100 px-4 py-2.5 flex justify-between items-center bg-slate-50">
+            <span className="text-xs text-muted-foreground">{filtered.length} {filtered.length === 1 ? 'документ' : 'документов'}</span>
+            <span className="text-xs font-semibold text-slate-800">
+              Итого: {total.toLocaleString('ru-RU')} ₽
+            </span>
+          </div>
+        </>
+      )}
 
       <InvoicePanel doc={selected} onClose={() => setSelected(null)} />
     </div>

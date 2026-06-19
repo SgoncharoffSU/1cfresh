@@ -42,7 +42,15 @@ function ChBadge({ ch }: { ch: IntegrationKey }) {
 }
 
 // ─── Tabs ──────────────────────────────────────────────────────────────────────
-
+type Tab = 'chat' | 'tasks' | 'docs' | 'schedules' | 'integrations' | 'portal';
+const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id:'chat',         label:'Чат',          icon:MessageSquare  },
+  { id:'tasks',        label:'Задачи',       icon:CheckSquare    },
+  { id:'docs',         label:'Документы',    icon:FileText       },
+  { id:'schedules',    label:'Расписания',   icon:CalendarClock  },
+  { id:'integrations', label:'Интеграции',   icon:Zap            },
+  { id:'portal',       label:'Портал',       icon:Globe          },
+];
 
 // ─── Chat tab — reuses the same ChatView as the Чаты page ─────────────────────
 function ChatTab({ clientId }: { clientId: string }) {
@@ -644,7 +652,12 @@ export function ClientDetail({ clientId }: { clientId: string }) {
 
       {/* Content */}
       <div className="flex-1 overflow-hidden">
-
+        {activeTab === 'chat'         && <ChatTab clientId={clientId} />}
+        {activeTab === 'tasks'        && <TasksTab clientId={clientId} />}
+        {activeTab === 'docs'         && <DocsTab clientId={clientId} />}
+        {activeTab === 'schedules'    && <SchedulesTab clientId={clientId} />}
+        {activeTab === 'integrations' && <IntegrationsTab activeChannels={client.activeChannels} />}
+        {activeTab === 'portal'       && <PortalTab clientId={clientId} />}
       </div>
     </div>
   );

@@ -32,7 +32,9 @@
         "python.defaultInterpreterPath": "/usr/local/bin/python",
         "editor.formatOnSave": true,
         "editor.defaultFormatter": "esbenp.prettier-vscode",
-        "[python]": { "editor.defaultFormatter": "ms-python.python" }
+        "[python]": { "editor.defaultFormatter": "ms-python.python" },
+        "workbench.colorTheme": "Default Dark Modern",
+        "workbench.preferredDarkColorTheme": "Default Dark Modern"
       }
     }
   },

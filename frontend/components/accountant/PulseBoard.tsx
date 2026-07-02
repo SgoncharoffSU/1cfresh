@@ -38,7 +38,7 @@ export function PulseBoard() {
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-slate-900">Пульс компании</h1>
+        <h1 className="text-xl font-bold text-slate-900 dark:text-white">Пульс компании</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Сводка по рабочему месту бухгалтера</p>
       </div>
 
@@ -58,12 +58,12 @@ export function PulseBoard() {
             ? <Empty text="Нет сообщений" />
             : chatGroups.slice(0, 6).map(({ client, unread, oldest, last }) => (
               <Link key={client.id} href={`/cli/${firmId}/clients/${client.id}`}
-                className="flex items-center gap-2.5 px-4 py-2.5 hover:bg-slate-50 transition-colors">
+                className="flex items-center gap-2.5 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
                 <div className={cn('h-8 w-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold', client.color)}>
                   {client.initials}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-800 truncate">{client.shortName}</p>
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{client.shortName}</p>
                   <p className="text-xs text-muted-foreground truncate">{last?.text ?? '—'}</p>
                 </div>
                 {unread > 0 && (
@@ -91,7 +91,7 @@ export function PulseBoard() {
                 <div key={task.id} className="flex items-center gap-2.5 px-4 py-2.5">
                   <PriorityDot priority={task.priority} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-slate-800 truncate">{task.title}</p>
+                    <p className="text-sm text-slate-800 dark:text-slate-200 truncate">{task.title}</p>
                     {client && <p className="text-[11px] text-muted-foreground">{client.shortName}</p>}
                   </div>
                   <StatusBadge status={task.status} />
@@ -110,10 +110,10 @@ function StatCard({ icon: Icon, label, value, color, href }: {
   label: string; value: number; color: string; href?: string;
 }) {
   const C: Record<string, { bg: string; text: string; num: string }> = {
-    blue:   { bg:'bg-blue-50',   text:'text-blue-600',   num:'text-blue-900' },
-    violet: { bg:'bg-violet-50', text:'text-violet-600', num:'text-violet-900' },
-    orange: { bg:'bg-orange-50', text:'text-orange-600', num:'text-orange-900' },
-    red:    { bg:'bg-red-50',    text:'text-red-600',    num:'text-red-900' },
+    blue:   { bg:'bg-blue-50 dark:bg-blue-500/10',     text:'text-blue-600 dark:text-blue-400',     num:'text-blue-900 dark:text-blue-200' },
+    violet: { bg:'bg-violet-50 dark:bg-violet-500/10', text:'text-violet-600 dark:text-violet-400', num:'text-violet-900 dark:text-violet-200' },
+    orange: { bg:'bg-orange-50 dark:bg-orange-500/10', text:'text-orange-600 dark:text-orange-400', num:'text-orange-900 dark:text-orange-200' },
+    red:    { bg:'bg-red-50 dark:bg-red-500/10',       text:'text-red-600 dark:text-red-400',       num:'text-red-900 dark:text-red-200' },
   };
   const c = C[color] ?? C.blue;
   const inner = (
@@ -130,14 +130,14 @@ function Section({ title, href, linkLabel, children }: {
   title: string; href: string; linkLabel: string; children: React.ReactNode;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-100 overflow-hidden">
-      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-700">{title}</h2>
-        <Link href={href} className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+    <div className="bg-white dark:bg-white/5 rounded-xl border border-slate-100 dark:border-white/10 overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-100 dark:border-white/10 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300">{title}</h2>
+        <Link href={href} className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1">
           {linkLabel} <ArrowRight className="h-3 w-3" />
         </Link>
       </div>
-      <div className="divide-y divide-slate-50">{children}</div>
+      <div className="divide-y divide-slate-50 dark:divide-white/5">{children}</div>
     </div>
   );
 }
@@ -155,9 +155,9 @@ function PriorityDot({ priority }: { priority: string }) {
 
 function StatusBadge({ status }: { status: string }) {
   const C: Record<string, string> = {
-    TODO: 'bg-slate-100 text-slate-600',
-    IN_PROGRESS: 'bg-blue-100 text-blue-700',
-    DONE: 'bg-emerald-100 text-emerald-700',
+    TODO: 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
+    IN_PROGRESS: 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300',
+    DONE: 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300',
   };
   const L: Record<string, string> = { TODO: 'К сделать', IN_PROGRESS: 'В работе', DONE: 'Готово' };
   return (

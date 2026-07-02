@@ -7,6 +7,7 @@ import {
 import { Button }   from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { LogoIcon } from '@/components/icons/LogoIcon';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { usePortalAuthStore } from '@/store/usePortalAuthStore';
 import { API, apiFetchPortal } from '@/lib/api';
 import { cn, formatTime, formatDate } from '@/lib/utils';
@@ -136,40 +137,45 @@ export default function PortalDashboardPage() {
 
   if (!_hasHydrated || !clientId) {
     return (
-      <div className="flex h-[100dvh] items-center justify-center bg-slate-50">
-        <div className="h-8 w-8 rounded-full border-2 border-slate-200 border-t-slate-600 animate-spin" />
+      <div className="flex h-[100dvh] items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="h-8 w-8 rounded-full border-2 border-slate-200 dark:border-slate-700 border-t-slate-600 dark:border-t-slate-300 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-slate-50 overflow-hidden">
+    <div className="flex flex-col h-[100dvh] bg-slate-50 dark:bg-slate-950 overflow-hidden">
       {/* Header */}
-      <header className="flex-shrink-0 bg-white border-b border-slate-100 px-4 py-3">
+      <header className="flex-shrink-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-4 py-3">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <LogoIcon className="h-7 w-auto" />
             <div>
-              <p className="text-sm font-semibold text-slate-900 leading-none">Клиентский портал</p>
+              <p className="text-sm font-semibold text-slate-900 dark:text-white leading-none">Клиентский портал</p>
               {clientName && <p className="text-[11px] text-muted-foreground truncate max-w-[180px] mt-0.5">{clientName}</p>}
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => { logout(); router.push(`/cli/${firmIdParam}/login`); }}
-            className="text-xs text-muted-foreground gap-1.5">
-            <LogOut className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Выйти</span>
-          </Button>
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+            <Button variant="ghost" size="sm" onClick={() => { logout(); router.push(`/cli/${firmIdParam}/login`); }}
+              className="text-xs text-muted-foreground gap-1.5">
+              <LogOut className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Выйти</span>
+            </Button>
+          </div>
         </div>
       </header>
 
       {/* Tabs */}
-      <div className="flex-shrink-0 bg-white border-b border-slate-100 px-4">
+      <div className="flex-shrink-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-4">
         <div className="max-w-3xl mx-auto flex">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button key={id} onClick={() => handleTab(id)}
               className={cn(
                 'flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
-                tab === id ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700',
+                tab === id
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200',
               )}>
               <Icon className="h-3.5 w-3.5" />
               {label}
@@ -200,15 +206,15 @@ export default function PortalDashboardPage() {
                           'max-w-[78%] rounded-2xl px-4 py-2.5 shadow-sm',
                           isClient
                             ? 'bg-blue-600 text-white rounded-br-sm'
-                            : 'bg-white border border-slate-200 text-slate-800 rounded-bl-sm',
+                            : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-sm',
                         )}>
                           {!isClient && (
-                            <p className="text-[10px] font-semibold text-blue-600 mb-0.5">
+                            <p className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 mb-0.5">
                               {msg.sender_name || 'Бухгалтер'}
                             </p>
                           )}
                           <p className="text-sm leading-snug whitespace-pre-wrap break-words">{msg.text}</p>
-                          <p className={cn('text-[10px] mt-1 text-right', isClient ? 'text-white/50' : 'text-slate-400')}>
+                          <p className={cn('text-[10px] mt-1 text-right', isClient ? 'text-white/50' : 'text-slate-400 dark:text-slate-500')}>
                             {formatTime(new Date(msg.timestamp))}
                           </p>
                         </div>
@@ -220,7 +226,7 @@ export default function PortalDashboardPage() {
               </div>
 
               {/* Input */}
-              <div className="flex-shrink-0 border-t border-slate-100 px-4 py-3 bg-white flex items-end gap-2">
+              <div className="flex-shrink-0 border-t border-slate-100 dark:border-slate-800 px-4 py-3 bg-white dark:bg-slate-900 flex items-end gap-2">
                 <Textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
@@ -256,15 +262,15 @@ export default function PortalDashboardPage() {
                 <div className="space-y-2">
                   {docs.map((doc) => (
                     <div key={doc.ref_key}
-                      className="bg-white rounded-xl border border-slate-100 px-4 py-3.5 flex items-center gap-3">
+                      className="bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 px-4 py-3.5 flex items-center gap-3">
                       <div className={cn(
                         'h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0',
-                        doc.is_posted ? 'bg-emerald-50' : 'bg-slate-50',
+                        doc.is_posted ? 'bg-emerald-50 dark:bg-emerald-500/10' : 'bg-slate-50 dark:bg-slate-800',
                       )}>
                         <FileText className={cn('h-4 w-4', doc.is_posted ? 'text-emerald-500' : 'text-slate-400')} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-800 truncate">
+                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
                           {DOC_LABEL[doc.doc_type] ?? doc.doc_type} №{doc.number}
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
@@ -272,12 +278,12 @@ export default function PortalDashboardPage() {
                         </p>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <p className="text-sm font-semibold text-slate-900">
+                        <p className="text-sm font-semibold text-slate-900 dark:text-white">
                           {doc.amount.toLocaleString('ru-RU', { minimumFractionDigits: 0 })} ₽
                         </p>
                         <span className={cn(
                           'text-[10px] font-medium px-1.5 py-0.5 rounded-full',
-                          doc.is_posted ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500',
+                          doc.is_posted ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
                         )}>
                           {doc.is_posted ? 'Проведён' : 'Черновик'}
                         </span>

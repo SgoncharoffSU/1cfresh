@@ -8,6 +8,7 @@ import { Label }   from '@/components/ui/label';
 import { usePortalAuthStore } from '@/store/usePortalAuthStore';
 import { API } from '@/lib/api';
 import { LogoIcon } from '@/components/icons/LogoIcon';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export default function PortalLoginPage() {
   const router = useRouter();
@@ -56,14 +57,15 @@ export default function PortalLoginPage() {
   };
 
   return (
-    <div className="flex-1 flex items-center justify-center p-4">
+    <div className="flex-1 flex items-center justify-center p-4 relative">
+      <ThemeToggle className="absolute top-4 right-4" />
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
           <LogoIcon className="h-12 w-auto mb-3" />
-          <h1 className="text-xl font-bold text-slate-900">Клиентский портал</h1>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Клиентский портал</h1>
           <p className="text-sm text-muted-foreground mt-1">Войдите для доступа к документам и чату</p>
         </div>
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label className="text-xs">Логин</Label>

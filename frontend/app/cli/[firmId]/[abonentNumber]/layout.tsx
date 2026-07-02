@@ -23,7 +23,7 @@ export default function AbonentPortalLayout({ children }: { children: React.Reac
   }, [token, firmId, abonentNumber, firmIdParam, abonentNumberParam, router, _hasHydrated]);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 dark:text-slate-100 flex flex-col">
       {children}
     </div>
   );

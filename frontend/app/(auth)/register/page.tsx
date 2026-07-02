@@ -63,17 +63,17 @@ export default function RegisterPage() {
         <LogoIcon className="h-10 w-auto" />
         <div>
           <p className="text-lg font-bold leading-none">BuhgSaaS</p>
-          <p className="text-xs text-slate-500 mt-0.5">Рабочее место бухгалтера</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Рабочее место бухгалтера</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
-        <h1 className="text-xl font-bold text-slate-900 mb-1">Регистрация</h1>
-        <p className="text-sm text-slate-500 mb-6">Создайте личный кабинет бухгалтерии</p>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-8">
+        <h1 className="text-xl font-bold text-slate-900 dark:text-white mb-1">Регистрация</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Создайте личный кабинет бухгалтерии</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
+            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Название бухгалтерии <span className="text-red-500">*</span>
             </label>
             <input
@@ -82,14 +82,14 @@ export default function RegisterPage() {
               onChange={(e) => setFirmName(e.target.value)}
               required
               autoFocus
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="ООО «Учёт и порядок»"
             />
           </div>
-          <hr className="border-slate-100" />
+          <hr className="border-slate-100 dark:border-slate-700" />
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
+            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Ваше имя <span className="text-red-500">*</span>
             </label>
             <input
@@ -97,12 +97,12 @@ export default function RegisterPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Иванова Анна Сергеевна"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
+            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Email <span className="text-red-500">*</span>
             </label>
             <input
@@ -110,12 +110,12 @@ export default function RegisterPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="you@firm.ru"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
+            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Пароль <span className="text-red-500">*</span>
             </label>
             <input
@@ -124,13 +124,13 @@ export default function RegisterPage() {
               onChange={(e) => setPassword(e.target.value)}
               required
               minLength={6}
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Минимум 6 символов"
             />
           </div>
 
           {error && (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            <p className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900 rounded-lg px-3 py-2">
               {error}
             </p>
           )}
@@ -138,16 +138,16 @@ export default function RegisterPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 px-4 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50"
+            className="w-full py-2.5 px-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-medium rounded-lg hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors disabled:opacity-50"
           >
             {loading ? 'Создаём аккаунт…' : 'Зарегистрироваться'}
           </button>
         </form>
       </div>
 
-      <p className="text-center text-xs text-slate-500 mt-4">
+      <p className="text-center text-xs text-slate-500 dark:text-slate-400 mt-4">
         Уже есть аккаунт?{' '}
-        <Link href="/login" className="text-blue-600 hover:underline font-medium">
+        <Link href="/login" className="text-blue-600 dark:text-blue-400 hover:underline font-medium">
           Войти
         </Link>
       </p>

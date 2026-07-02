@@ -5,6 +5,7 @@ import { usePathname, useRouter, useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart3, Users, MessageSquare, CheckSquare, FlaskConical, X, LogOut, CreditCard, Menu, RefreshCw } from 'lucide-react';
 import { TrialBanner } from '@/components/billing/TrialBanner';
+import { ThemeToggle }        from '@/components/ThemeToggle';
 import { LogoIcon }          from '@/components/icons/LogoIcon';
 import { StoreInitializer }  from '@/components/StoreInitializer';
 import { TelegramInboxPoller } from '@/components/TelegramInboxPoller';
@@ -50,20 +51,20 @@ function DemoBanner() {
         Откл.
       </Button>
       {showCreds && (
-        <div className="absolute top-9 right-4 z-50 bg-white border border-slate-200 rounded-lg shadow-lg p-4 w-80 text-xs">
-          <p className="font-semibold text-slate-800 mb-3">Тестовые учётные данные</p>
+        <div className="absolute top-9 right-4 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg p-4 w-80 text-xs">
+          <p className="font-semibold text-slate-800 dark:text-slate-200 mb-3">Тестовые учётные данные</p>
           {TEST_CREDENTIALS.map((c) => (
-            <div key={c.login} className="mb-3 last:mb-0 p-2.5 rounded-md bg-slate-50 border border-slate-100">
-              <p className="font-medium text-slate-700">{c.role}</p>
+            <div key={c.login} className="mb-3 last:mb-0 p-2.5 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+              <p className="font-medium text-slate-700 dark:text-slate-300">{c.role}</p>
               <p className="text-muted-foreground text-[11px] mt-0.5">{c.name}</p>
               {c.inn && <p className="text-muted-foreground text-[11px]">ИНН: {c.inn}</p>}
               <div className="mt-2 space-y-0.5 font-mono">
-                <p><span className="text-slate-400">Логин: </span><span className="font-semibold text-slate-800">{c.login}</span></p>
-                <p><span className="text-slate-400">Пароль: </span><span className="font-semibold text-slate-800">{c.password}</span></p>
+                <p><span className="text-slate-400">Логин: </span><span className="font-semibold text-slate-800 dark:text-slate-200">{c.login}</span></p>
+                <p><span className="text-slate-400">Пароль: </span><span className="font-semibold text-slate-800 dark:text-slate-200">{c.password}</span></p>
               </div>
             </div>
           ))}
-          <button onClick={() => setShowCreds(false)} className="mt-2 text-[11px] text-slate-400 hover:text-slate-600">Закрыть</button>
+          <button onClick={() => setShowCreds(false)} className="mt-2 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Закрыть</button>
         </div>
       )}
     </div>
@@ -114,8 +115,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [token, user, router, _hasHydrated, firmIdParam]);
 
   if (!_hasHydrated) return (
-    <div className="flex h-[100dvh] items-center justify-center bg-slate-50">
-      <div className="h-8 w-8 rounded-full border-2 border-slate-200 border-t-slate-600 animate-spin" />
+    <div className="flex h-[100dvh] items-center justify-center bg-slate-50 dark:bg-slate-950">
+      <div className="h-8 w-8 rounded-full border-2 border-slate-200 dark:border-slate-700 border-t-slate-600 dark:border-t-slate-300 animate-spin" />
     </div>
   );
   if (!token || !user || String(user.firmId) !== firmIdParam) return null;
@@ -128,7 +129,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const roleLabel = user?.role === 'CHIEF_ACCOUNTANT' ? 'Главный бухгалтер' : 'Бухгалтер';
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-slate-50">
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-slate-50 dark:bg-slate-950 dark:text-slate-100">
       <StoreInitializer />
       <TelegramInboxPoller />
       <PortalInboxPoller />
@@ -136,13 +137,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <DemoBanner />
       <TrialBanner />
 
-      {/* Top bar: hamburger menu — подписка и синхронизация */}
-      <div className="flex-shrink-0 h-10 bg-white border-b border-slate-100 flex items-center justify-end px-3">
+      {/* Top bar: theme toggle + hamburger menu — подписка и синхронизация */}
+      <div className="flex-shrink-0 h-10 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex items-center justify-end gap-1 px-3">
+        <ThemeToggle />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               aria-label="Меню"
-              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition-colors"
             >
               <Menu className="h-4 w-4" />
             </button>
@@ -164,8 +166,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="flex flex-1 overflow-hidden min-h-0">
 
         {/* ── Desktop sidebar ── */}
-        <aside className="hidden md:flex md:w-52 md:flex-shrink-0 flex-col bg-white border-r border-slate-100">
-          <div className="px-4 py-4 border-b border-slate-100 flex items-center gap-2">
+        <aside className="hidden md:flex md:w-52 md:flex-shrink-0 flex-col bg-white dark:bg-slate-900 border-r border-slate-100 dark:border-slate-800">
+          <div className="px-4 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
             <LogoIcon className="h-9 w-auto flex-shrink-0" />
             <div className="min-w-0">
               <p className="text-sm font-bold leading-none truncate">{user?.firmName ?? 'BuhgSaaS'}</p>
@@ -180,15 +182,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <Link key={href} href={href}
                   className={cn(
                     'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all',
-                    isActive ? 'bg-slate-900 text-white font-medium' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
+                    isActive
+                      ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-medium'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white',
                   )}>
                   <Icon className="h-4 w-4 flex-shrink-0" />
                   {label}
                   {badge > 0 && (
-                    <span className={cn(
-                      'ml-auto h-4 min-w-[16px] rounded-full text-[9px] font-bold flex items-center justify-center px-1 flex-shrink-0',
-                      isActive ? 'bg-white/20 text-white' : 'bg-red-500 text-white',
-                    )}>
+                    <span className="ml-auto h-4 min-w-[16px] rounded-full text-[9px] font-bold flex items-center justify-center px-1 flex-shrink-0 bg-red-500 text-white">
                       {badge > 99 ? '99+' : badge}
                     </span>
                   )}
@@ -196,9 +197,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               );
             })}
           </nav>
-          <div className="p-3 border-t border-slate-100 space-y-1">
+          <div className="p-3 border-t border-slate-100 dark:border-slate-800 space-y-1">
             <div className="flex items-center gap-2 px-1 py-1">
-              <div className="h-7 w-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-semibold flex-shrink-0">
+              <div className="h-7 w-7 rounded-full bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 flex items-center justify-center text-xs font-semibold flex-shrink-0">
                 {initials}
               </div>
               <div className="min-w-0 flex-1">
@@ -212,7 +213,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 useClientStore.getState().setClients([]);
                 router.push('/login');
               }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors">
+              className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors">
               <LogOut className="h-3.5 w-3.5" />
               Выйти
             </button>
@@ -223,7 +224,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
 
       {/* ── Mobile bottom navigation ── */}
-      <nav className="md:hidden flex-shrink-0 bg-white border-t border-slate-100">
+      <nav className="md:hidden flex-shrink-0 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
         <div className="flex h-14 items-stretch">
           {NAV.map(({ href, seg, label, icon: Icon }) => {
             const isActive = pathname.startsWith(href);
@@ -232,7 +233,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <Link key={href} href={href}
                 className={cn(
                   'flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors',
-                  isActive ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600',
+                  isActive ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300',
                 )}>
                 <div className="relative">
                   <Icon className="h-5 w-5" />

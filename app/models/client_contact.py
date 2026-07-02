@@ -8,6 +8,7 @@ class ClientContact(Base):
 
     id            = Column(String(200), primary_key=True)  # frontend-сгенерированный id или id контрагента 1С
     tenant_id     = Column(Integer, nullable=False, index=True)
+    abonent_number = Column(Integer, nullable=True)  # sequential per tenant_id — /cli/{firmId}/{abonent_number}
     name          = Column(String(500), nullable=False)
     short_name    = Column(String(200), nullable=False)
     inn           = Column(String(20), nullable=True)

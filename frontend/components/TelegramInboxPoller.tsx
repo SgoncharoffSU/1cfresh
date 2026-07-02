@@ -4,7 +4,7 @@ import { useAppStore }     from '@/store/useAppStore';
 import { useChatStore }    from '@/store/useChatStore';
 import { useClientStore }  from '@/store/useClientStore';
 import { usePendingStore } from '@/store/usePendingStore';
-import { API, TgApiMessage } from '@/lib/api';
+import { API, apiFetch, TgApiMessage } from '@/lib/api';
 
 const POLL_MS     = 5_000;
 const FIRST_DELAY = 800;
@@ -22,7 +22,7 @@ export function TelegramInboxPoller() {
 
     const poll = async () => {
       try {
-        const res = await fetch(API.telegram.messages(200));
+        const res = await apiFetch(API.telegram.messages(200));
         if (!res.ok) { usePendingStore.getState().setTgOnline(false); return; }
 
         const data: { messages: TgApiMessage[] } = await res.json();
@@ -57,11 +57,9 @@ export function TelegramInboxPoller() {
             // Mirror to portal if client has portal channel linked
             const portalClientId = client.channelIds?.PORTAL;
             if (portalClientId) {
-              fetch(API.portal.chatSend(), {
-                method:  'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body:    JSON.stringify({
-                  tenant_id:        1,
+              apiFetch(API.portal.chatMirror(), {
+                method: 'POST',
+                body:   JSON.stringify({
                   portal_client_id: String(portalClientId),
                   text:             tg.text,
                   source:           'tg',

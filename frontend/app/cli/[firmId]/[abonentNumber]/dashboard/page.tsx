@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import {
   MessageSquare, CheckSquare, FileText, LogOut, Send, Globe,
 } from 'lucide-react';
@@ -8,7 +8,7 @@ import { Button }   from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { LogoIcon } from '@/components/icons/LogoIcon';
 import { usePortalAuthStore } from '@/store/usePortalAuthStore';
-import { API } from '@/lib/api';
+import { API, apiFetchPortal } from '@/lib/api';
 import { cn, formatTime, formatDate } from '@/lib/utils';
 
 type Tab = 'chat' | 'tasks' | 'docs';
@@ -53,6 +53,7 @@ function ComingSoon() {
 
 export default function PortalDashboardPage() {
   const router = useRouter();
+  const { firmId: firmIdParam } = useParams<{ firmId: string }>();
   const { clientId, clientName, logout, _hasHydrated } = usePortalAuthStore();
 
   // ── Tab — persisted across refreshes ──────────────────────────────────────
@@ -77,7 +78,7 @@ export default function PortalDashboardPage() {
     let active = true;
     const poll = async () => {
       try {
-        const res = await fetch(API.portal.chatHistory(clientId));
+        const res = await apiFetchPortal(API.portal.chatHistory());
         if (res.ok && active) {
           const data = await res.json();
           setChatMsgs(data.messages ?? []);
@@ -99,12 +100,11 @@ export default function PortalDashboardPage() {
     setSending(true);
     setDraft('');
     try {
-      await fetch(API.portal.chatSend(), {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ tenant_id: 1, portal_client_id: clientId, text }),
+      await apiFetchPortal(API.portal.chatSend(), {
+        method: 'POST',
+        body:   JSON.stringify({ text }),
       });
-      const res = await fetch(API.portal.chatHistory(clientId));
+      const res = await apiFetchPortal(API.portal.chatHistory());
       if (res.ok) setChatMsgs((await res.json()).messages ?? []);
     } catch {
       setDraft(text);
@@ -120,7 +120,7 @@ export default function PortalDashboardPage() {
   useEffect(() => {
     if (tab !== 'docs' || !clientId) return;
     setDocsLoad(true);
-    fetch(API.portal.documents(clientId))
+    apiFetchPortal(API.portal.documents())
       .then((r) => r.json())
       .then((d) => setDocs(d.documents ?? []))
       .catch(() => {})
@@ -128,9 +128,11 @@ export default function PortalDashboardPage() {
   }, [tab, clientId]);
 
   // ── Auth guard ────────────────────────────────────────────────────────────
+  // (the layout already redirects on firmId/abonentNumber mismatch — this covers
+  // the plain "never logged in" case for this page specifically)
   useEffect(() => {
-    if (_hasHydrated && !clientId) router.replace('/portal');
-  }, [_hasHydrated, clientId, router]);
+    if (_hasHydrated && !clientId) router.replace(`/cli/${firmIdParam}/login`);
+  }, [_hasHydrated, clientId, router, firmIdParam]);
 
   if (!_hasHydrated || !clientId) {
     return (
@@ -152,7 +154,7 @@ export default function PortalDashboardPage() {
               {clientName && <p className="text-[11px] text-muted-foreground truncate max-w-[180px] mt-0.5">{clientName}</p>}
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => { logout(); router.push('/portal'); }}
+          <Button variant="ghost" size="sm" onClick={() => { logout(); router.push(`/cli/${firmIdParam}/login`); }}
             className="text-xs text-muted-foreground gap-1.5">
             <LogOut className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Выйти</span>

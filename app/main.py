@@ -14,9 +14,13 @@ from app.api.auth import router as auth_router
 from app.api.portal import router as portal_router
 from app.api.clients import router as clients_router
 from app.api.chat import router as chat_router
+from app.api.contracts import router as contracts_router
+from app.api.billing import router as billing_router
+from app.api.superadmin import router as superadmin_router
 from app.routers.telegram import router as telegram_router
 from app.db.database import Base, engine
 import app.models.firm               # noqa: F401
+import app.models.contract_schedule  # noqa: F401
 import app.models.tenant             # noqa: F401
 import app.models.schedule           # noqa: F401
 import app.models.portal_credential  # noqa: F401
@@ -25,6 +29,9 @@ import app.models.client_contact     # noqa: F401
 import app.models.client_channel     # noqa: F401
 import app.models.chat_message       # noqa: F401
 import app.models.telegram_state     # noqa: F401
+import app.models.superadmin         # noqa: F401
+import app.models.impersonation_log  # noqa: F401
+import app.models.abonent_counter    # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +84,9 @@ app.include_router(telegram_router,      prefix="/api/v1")
 app.include_router(portal_router,        prefix="/api/v1")
 app.include_router(clients_router,       prefix="/api/v1")
 app.include_router(chat_router,          prefix="/api/v1")
+app.include_router(contracts_router,     prefix="/api/v1")
+app.include_router(billing_router,       prefix="/api/v1")
+app.include_router(superadmin_router,    prefix="/api/v1")
 
 
 @app.get("/health")

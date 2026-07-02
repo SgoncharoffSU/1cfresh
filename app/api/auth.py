@@ -1,4 +1,5 @@
 """Auth API: register, login, me, tenant setup."""
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -30,6 +31,12 @@ async def get_current_user(
     try:
         payload = decode_token(creds.credentials)
     except ValueError:
+        raise exc
+    # Tokens issued before the `typ` claim existed have none — treat as "admin" for
+    # backward compatibility. Tokens explicitly typed for another tier (superadmin,
+    # abonent) must never be usable here.
+    typ = payload.get("typ")
+    if typ is not None and typ != "admin":
         raise exc
     result = await db.execute(select(User).where(User.id == payload.get("sub")))
     user   = result.scalar_one_or_none()
@@ -69,7 +76,14 @@ async def register(data: RegisterIn, db: AsyncSession = Depends(get_db)):
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Email уже зарегистрирован")
 
-    firm = Firm(name=data.firm_name, inn=data.firm_inn or None)
+    firm = Firm(
+        name                = data.firm_name,
+        inn                 = data.firm_inn or None,
+        subscription_status = "trial",
+        trial_started_at    = datetime.utcnow(),
+        usage_docs_month    = 0,
+        usage_clients_count = 0,
+    )
     db.add(firm)
     await db.flush()  # get firm.id
 
@@ -97,7 +111,7 @@ async def register(data: RegisterIn, db: AsyncSession = Depends(get_db)):
 
     await db.commit()
 
-    token = create_token({"sub": user.id, "firm_id": firm.id, "role": user.role})
+    token = create_token({"sub": user.id, "firm_id": firm.id, "role": user.role, "typ": "admin"})
     return TokenOut(
         access_token = token,
         user_id      = user.id,
@@ -122,7 +136,7 @@ async def login(data: LoginIn, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Неверный логин или пароль")
 
     tenant_id = await _first_tenant_id(db, user.firm_id)
-    token = create_token({"sub": user.id, "firm_id": user.firm_id, "role": user.role})
+    token = create_token({"sub": user.id, "firm_id": user.firm_id, "role": user.role, "typ": "admin"})
     return TokenOut(
         access_token = token,
         user_id      = user.id,
@@ -148,7 +162,7 @@ async def me(user: User = Depends(get_current_user), db: AsyncSession = Depends(
         role      = user.role,
         firm_name = firm.name,
         firm_inn  = firm.inn,
-        firm_plan = firm.plan,
+        firm_plan = firm.subscription_plan or "trial",
     )
 
 

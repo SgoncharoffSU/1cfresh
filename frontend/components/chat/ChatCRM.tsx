@@ -1,6 +1,6 @@
 'use client';
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams, useParams } from 'next/navigation';
 import {
   Check, CheckCircle2, ChevronDown, ChevronRight, ArrowLeft,
   MessageSquare, MessageCircle, Zap, FileText, Send,
@@ -20,7 +20,7 @@ import { Button }          from '@/components/ui/button';
 import { Input }           from '@/components/ui/input';
 import { Label }           from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { API }             from '@/lib/api';
+import { API, apiFetch }   from '@/lib/api';
 import { cn, formatTime, formatDate } from '@/lib/utils';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -587,9 +587,9 @@ export function ChatView({ group, onMarkDone, onBack, highlightIds, focusId }: {
     }
     if (channel === 'PORTAL' && portalClientId) {
       try {
-        await fetch(API.portal.chatReply(), {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tenant_id: 1, portal_client_id: portalClientId, text, sender_name: 'Бухгалтер' }),
+        await apiFetch(API.portal.chatReply(), {
+          method: 'POST',
+          body: JSON.stringify({ portal_client_id: portalClientId, text, sender_name: 'Бухгалтер' }),
         });
       } catch {}
     }
@@ -764,6 +764,8 @@ export function ChatView({ group, onMarkDone, onBack, highlightIds, focusId }: {
 export function ChatCRM() {
   const router       = useRouter();
   const searchParams = useSearchParams();
+  const { firmId }   = useParams<{ firmId: string }>();
+  const chatsHref    = `/cli/${firmId}/chats`;
 
   const { messages, markDone, addMessage } = useChatStore();
   const { clients, updateChannelId }       = useClientStore();
@@ -791,7 +793,7 @@ export function ChatCRM() {
   // When navigated from TaskManager via openChatClientId → redirect via URL
   useEffect(() => {
     if (openChatClientId) {
-      router.replace(`/chats?client=${encodeURIComponent(openChatClientId)}`);
+      router.replace(`${chatsHref}?client=${encodeURIComponent(openChatClientId)}`);
       setOpenChatClientId(null);
     }
   }, [openChatClientId, router, setOpenChatClientId]);
@@ -875,12 +877,12 @@ export function ChatCRM() {
   const selectedGroup = groups.find((g) => g.client.id === selectedId) ?? null;
 
   const selectClient  = useCallback((id: string) =>
-    router.replace(`/chats?client=${encodeURIComponent(id)}`), [router]);
+    router.replace(`${chatsHref}?client=${encodeURIComponent(id)}`), [router, chatsHref]);
 
   const selectPending = useCallback((chatId: number) =>
-    router.replace(`/chats?pending=${chatId}`), [router]);
+    router.replace(`${chatsHref}?pending=${chatId}`), [router, chatsHref]);
 
-  const handleBack    = useCallback(() => router.replace('/chats'), [router]);
+  const handleBack    = useCallback(() => router.replace(chatsHref), [router, chatsHref]);
 
   const handleLink = useCallback((chatId: number, clientId: string) => {
     updateChannelId(clientId, 'TG', chatId);
@@ -896,8 +898,8 @@ export function ChatCRM() {
     });
     removeGroup(chatId);
     setLinkChatId(null);
-    router.replace(`/chats?client=${encodeURIComponent(clientId)}`);
-  }, [updateChannelId, addMessage, pendingGroupsMap, removeGroup, router]);
+    router.replace(`${chatsHref}?client=${encodeURIComponent(clientId)}`);
+  }, [updateChannelId, addMessage, pendingGroupsMap, removeGroup, router, chatsHref]);
 
   function renderCard(item: AnyItem) {
     if (item.kind === 'client') {

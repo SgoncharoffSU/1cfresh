@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, Users, MessageSquare, CheckSquare, FlaskConical, X, LogOut } from 'lucide-react';
+import { BarChart3, Users, MessageSquare, CheckSquare, FlaskConical, X, LogOut, CreditCard } from 'lucide-react';
+import { TrialBanner } from '@/components/billing/TrialBanner';
 import { LogoIcon }          from '@/components/icons/LogoIcon';
 import { StoreInitializer }  from '@/components/StoreInitializer';
 import { TelegramInboxPoller } from '@/components/TelegramInboxPoller';
@@ -13,12 +14,19 @@ import { SyncStatusBar }     from '@/components/SyncStatusBar';
 import { cn } from '@/lib/utils';
 import { useAppStore }     from '@/store/useAppStore';
 import { useChatStore }    from '@/store/useChatStore';
+import { useClientStore }  from '@/store/useClientStore';
 import { useAuthStore }    from '@/store/useAuthStore';
 import { usePendingStore } from '@/store/usePendingStore';
 import { TEST_CREDENTIALS } from '@/constants/client';
 import { Button } from '@/components/ui/button';
 
-
+const NAV_ITEMS = [
+  { seg: 'dashboard', label: 'Обзор',    icon: BarChart3     },
+  { seg: 'clients',   label: 'Клиенты',  icon: Users         },
+  { seg: 'chats',     label: 'Чаты',     icon: MessageSquare },
+  { seg: 'tasks',     label: 'Задачи',   icon: CheckSquare   },
+  { seg: 'billing',   label: 'Подписка', icon: CreditCard    },
+];
 
 function DemoBanner() {
   const { demoMode, setDemoMode } = useAppStore();
@@ -62,6 +70,7 @@ function DemoBanner() {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname  = usePathname();
   const router    = useRouter();
+  const { firmId: firmIdParam } = useParams<{ firmId: string }>();
   const { token, user, logout, _hasHydrated } = useAuthStore();
   const demoMode      = useAppStore((s) => s.demoMode);
   const messages      = useChatStore((s) => s.messages);
@@ -79,16 +88,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
   const chatBadge = unprocessedCount + pendingCount;
 
+  // Frontend guard only (UX) — the backend always scopes data from the JWT's own
+  // firm_id, never from this URL segment, so this redirect can't be relied on for
+  // isolation, only for not showing a firm's own chrome under the wrong URL.
   useEffect(() => {
-    if (_hasHydrated && !token) router.replace('/login');
-  }, [token, router, _hasHydrated]);
+    if (!_hasHydrated) return;
+    if (!token || !user) { router.replace('/login'); return; }
+    if (String(user.firmId) !== firmIdParam) { router.replace(`/cli/${user.firmId}/dashboard`); }
+  }, [token, user, router, _hasHydrated, firmIdParam]);
 
   if (!_hasHydrated) return (
     <div className="flex h-[100dvh] items-center justify-center bg-slate-50">
       <div className="h-8 w-8 rounded-full border-2 border-slate-200 border-t-slate-600 animate-spin" />
     </div>
   );
-  if (!token) return null;
+  if (!token || !user || String(user.firmId) !== firmIdParam) return null;
+
+  const NAV = NAV_ITEMS.map((n) => ({ ...n, href: `/cli/${firmIdParam}/${n.seg}` }));
 
   const initials  = user?.name
     ? user.name.trim().split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase()
@@ -102,6 +118,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <PortalInboxPoller />
       <LocalDataMigrationBanner />
       <DemoBanner />
+      <TrialBanner />
 
       {/* Body row: sidebar (desktop) + main */}
       <div className="flex flex-1 overflow-hidden min-h-0">
@@ -116,9 +133,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           </div>
           <nav className="flex-1 p-3 space-y-0.5">
-            {NAV.map(({ href, label, icon: Icon }) => {
+            {NAV.map(({ href, seg, label, icon: Icon }) => {
               const isActive = pathname.startsWith(href);
-              const badge    = href === '/chats' && chatBadge > 0 ? chatBadge : 0;
+              const badge    = seg === 'chats' && chatBadge > 0 ? chatBadge : 0;
               return (
                 <Link key={href} href={href}
                   className={cn(
@@ -149,7 +166,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <p className="text-[10px] text-muted-foreground truncate">{roleLabel}</p>
               </div>
             </div>
-            <button onClick={() => { logout(); router.push('/login'); }}
+            <button onClick={() => {
+                logout();
+                useChatStore.getState().setMessages([]);
+                useClientStore.getState().setClients([]);
+                router.push('/login');
+              }}
               className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors">
               <LogOut className="h-3.5 w-3.5" />
               Выйти
@@ -163,9 +185,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* ── Mobile bottom navigation ── */}
       <nav className="md:hidden flex-shrink-0 bg-white border-t border-slate-100">
         <div className="flex h-14 items-stretch">
-          {NAV.map(({ href, label, icon: Icon }) => {
+          {NAV.map(({ href, seg, label, icon: Icon }) => {
             const isActive = pathname.startsWith(href);
-            const badge    = href === '/chats' && chatBadge > 0 ? chatBadge : 0;
+            const badge    = seg === 'chats' && chatBadge > 0 ? chatBadge : 0;
             return (
               <Link key={href} href={href}
                 className={cn(

@@ -60,9 +60,10 @@ export default function LoginPage() {
           firmPlan: me.firm_plan,
         });
         // If tenant not yet configured → onboarding
-        router.push(me.tenant_id && data.connected !== false ? '/dashboard' : '/onboarding');
+        const base = `/cli/${me.firm_id}`;
+        router.push(me.tenant_id && data.connected !== false ? `${base}/dashboard` : `${base}/onboarding`);
       } else {
-        router.push('/dashboard');
+        router.push(`/cli/${data.firm_id}/dashboard`);
       }
     } catch {
       setError('Ошибка соединения с сервером');

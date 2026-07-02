@@ -11,6 +11,7 @@ from app.db.database import get_db
 from app.models.chat_message import ChatMessage
 from app.models.client_channel import ClientChannel
 from app.models.client_contact import ClientContact
+from app.services.abonent_service import next_abonent_number
 from app.services.auth_service import hash_password
 
 router = APIRouter(prefix="/clients", tags=["clients"])
@@ -65,6 +66,7 @@ async def _client_dict(db: AsyncSession, tenant_id: int, c: ClientContact) -> di
         "activeChannels": [ch.channel for ch in channels],
         "channelIds":     {ch.channel: ch.channel_ref for ch in channels},
         "portalLogin":    c.portal_login,
+        "abonentNumber":  c.abonent_number,
     }
 
 
@@ -91,14 +93,17 @@ async def create_client(
     if existing:
         return {"ok": True, "id": existing.id}
 
+    abonent_number = await next_abonent_number(db, tenant_id)
+
     client = ClientContact(
-        id         = data.id,
-        tenant_id  = tenant_id,
-        name       = data.name,
-        short_name = data.shortName,
-        inn        = data.inn,
-        initials   = data.initials,
-        color      = data.color,
+        id             = data.id,
+        tenant_id      = tenant_id,
+        abonent_number = abonent_number,
+        name           = data.name,
+        short_name     = data.shortName,
+        inn            = data.inn,
+        initials       = data.initials,
+        color          = data.color,
         portal_login          = data.portalLogin,
         portal_password_hash  = hash_password(data.portalPassword) if data.portalPassword else None,
     )

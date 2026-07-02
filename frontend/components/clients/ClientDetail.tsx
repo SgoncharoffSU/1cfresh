@@ -1,9 +1,9 @@
 'use client';
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams, useParams } from 'next/navigation';
 import {
-  ArrowLeft, MessageSquare, CheckSquare, FileText, Zap,
+  ArrowLeft, MessageSquare, CheckSquare, FileText, Zap, ScrollText,
   MessageCircle, CheckCircle2, XCircle, Circle, Mail, RefreshCw, CalendarClock,
   Pencil, Trash2, ToggleLeft, ToggleRight, Globe, Eye, EyeOff, Copy, ExternalLink,
 } from 'lucide-react';
@@ -20,7 +20,8 @@ import { Textarea }       from '@/components/ui/textarea';
 import { TelegramIcon }   from '@/components/icons/TelegramIcon';
 import { AiChatIcon }     from '@/components/icons/AiChatIcon';
 import { ChatMessage, IntegrationKey } from '@/types';
-import { API }            from '@/lib/api';
+import { API, apiFetch } from '@/lib/api';
+import ContractsTab      from '@/components/clients/ContractsTab';
 import { cn, formatTime, formatDate } from '@/lib/utils';
 
 // ─── Channel badge ─────────────────────────────────────────────────────────────
@@ -136,33 +137,230 @@ const DOC_CHANNEL_ICON: Record<string, React.ReactNode> = {
 };
 
 // ─── Documents sub-tabs ────────────────────────────────────────────────────────
-type DocSubTab = 'invoices' | 'sales' | 'factura';
+type DocSubTab = 'contracts' | 'invoices' | 'sales' | 'factura';
 const DOC_SUB_TABS: { id: DocSubTab; label: string; type: string }[] = [
-  { id: 'invoices', label: 'Счета',         type: 'INVOICE' },
-  { id: 'sales',    label: 'Реализации',    type: 'SALE'    },
-  { id: 'factura',  label: 'Счета-фактуры', type: 'FACTURA' },
+  { id: 'contracts', label: 'Договоры',      type: 'CONTRACT' },
+  { id: 'invoices',  label: 'Счета',         type: 'INVOICE'  },
+  { id: 'sales',     label: 'Реализации',    type: 'SALE'     },
+  { id: 'factura',   label: 'Счета-фактуры', type: 'FACTURA'  },
 ];
 
-// ─── Documents tab ─────────────────────────────────────────────────────────────
-function DocsTab({ clientId }: { clientId: string }) {
-  const [docs,     setDocs]     = useState<ApiDocFull[]>([]);
-  const [loading,  setLoading]  = useState(true);
-  const [selected, setSelected] = useState<ApiDocFull | null>(null);
-  const [subTab,   setSubTab]   = useState<DocSubTab>('invoices');
+// ─── Inline schedule panel for a document ──────────────────────────────────────
+const WEEK_NAMES = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
 
-  const load = useCallback(async () => {
-    setLoading(true);
+function DocSchedulePanel({
+  doc,
+  counterpartyKey,
+  onClose,
+}: {
+  doc: ApiDocFull;
+  counterpartyKey: string;
+  onClose: () => void;
+}) {
+  const [freq,    setFreq]    = useState<'weekly'|'monthly'|'quarterly'|'minutes'>('monthly');
+  const [weekDay, setWeekDay] = useState(5);  // для minutes — интервал в минутах
+  const [monthDay,setMonthDay]= useState('1');
+  const [channel, setChannel] = useState('');
+  const [address, setAddress] = useState('');
+  const [saving,  setSaving]  = useState(false);
+  const [msg,     setMsg]     = useState('');
+
+  const basisType = (doc as any).type as string;  // INVOICE | SALE | FACTURA
+  const targetMap: Record<string, string> = { INVOICE:'INVOICE', SALE:'SALE', FACTURA:'FACTURA' };
+  const target = targetMap[basisType] || 'INVOICE';
+
+  useEffect(() => {
+    // load existing schedule if any
+    apiFetch(API.contracts.listSchedules(doc.id))
+      .then(r => r.ok ? r.json() : [])
+      .then((schedules: any[]) => {
+        const s = schedules.find((x: any) => x.doc_type_target === target);
+        if (s) {
+          setFreq(s.frequency);
+          setWeekDay(s.week_day ?? 0);
+          setMonthDay(s.month_day ?? '1');
+          setChannel(s.delivery_channel ?? '');
+          setAddress(s.delivery_address ?? '');
+        }
+      })
+      .catch(() => {});
+  }, [doc.id, target]);
+
+  async function save() {
+    setSaving(true);
+    setMsg('');
     try {
-      const res = await fetch(API.documents.list());
+      const body: Record<string, unknown> = {
+        frequency: freq,
+        month_day: monthDay,
+        create_invoice: target === 'INVOICE',
+        create_sale: target === 'SALE',
+        create_factura: target === 'FACTURA',
+        delivery_channel: channel || null,
+        delivery_address: address || null,
+        is_active: true,
+        basis_doc_type: basisType,
+        doc_type_target: target,
+      };
+      if (freq === 'weekly' || freq === 'minutes') body.week_day = weekDay;
+      const r = await apiFetch(API.contracts.upsertSchedule(doc.id, target, basisType), {
+        method: 'POST', body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      setMsg('Расписание сохранено');
+      setTimeout(onClose, 1200);
+    } catch (e: unknown) {
+      setMsg('Ошибка: ' + (e instanceof Error ? e.message : String(e)));
+    } finally { setSaving(false); }
+  }
+
+  async function del() {
+    if (!confirm('Удалить расписание?')) return;
+    await apiFetch(API.contracts.deleteSchedule(doc.id, target), { method: 'DELETE' });
+    onClose();
+  }
+
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold text-blue-900 text-xs">Расписание создания: {doc.number}</span>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-base leading-none">×</button>
+      </div>
+
+      {/* Frequency */}
+      <div className="flex gap-1.5 flex-wrap">
+        {([
+          ['monthly',   'Ежемесячно'],
+          ['weekly',    'Еженедельно'],
+          ['quarterly', 'Ежеквартально'],
+          ['minutes',   '⏱ Мин'],
+        ] as ['weekly'|'monthly'|'quarterly'|'minutes', string][]).map(([f,label]) => (
+          <button key={f} onClick={() => setFreq(f)}
+            className={cn('px-2 py-0.5 rounded text-xs border', freq === f
+              ? 'bg-blue-600 text-white border-blue-600'
+              : 'bg-white text-slate-600 border-slate-300')}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Day / interval picker */}
+      {freq === 'minutes' ? (
+        <div className="flex gap-1 items-center flex-wrap">
+          <span className="text-xs text-slate-500">Каждые:</span>
+          {[1,2,5,10,15,30,60].map(m => (
+            <button key={m} onClick={() => setWeekDay(m)}
+              className={cn('px-2 py-0.5 rounded text-xs border', weekDay===m
+                ?'bg-orange-500 text-white border-orange-500'
+                :'bg-white text-slate-600 border-slate-300')}>
+              {m} мин
+            </button>
+          ))}
+        </div>
+      ) : freq === 'weekly' ? (
+        <div className="flex gap-1">
+          {WEEK_NAMES.map((d,i) => (
+            <button key={i} onClick={() => setWeekDay(i)}
+              className={cn('w-7 h-7 rounded text-xs border', weekDay===i
+                ?'bg-blue-600 text-white border-blue-600'
+                :'bg-white text-slate-600 border-slate-300')}>
+              {d}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="flex gap-1 flex-wrap items-center">
+          <span className="text-xs text-slate-500">Число:</span>
+          {['first','1','5','10','15','20','25','last'].map(v => (
+            <button key={v} onClick={() => setMonthDay(v)}
+              className={cn('min-w-[26px] h-6 px-1 rounded text-xs border', monthDay===v
+                ?'bg-blue-600 text-white border-blue-600'
+                :'bg-white text-slate-600 border-slate-300')}>
+              {v==='first'?'Нач':v==='last'?'Кон':v}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Delivery */}
+      <div className="flex gap-1.5 flex-wrap items-center">
+        <span className="text-xs text-slate-500">Отправить:</span>
+        {(['','EMAIL','TG'] as const).map(ch => (
+          <button key={ch} onClick={() => setChannel(ch)}
+            className={cn('px-2 py-0.5 rounded text-xs border flex items-center gap-1', channel===ch
+              ?'bg-blue-600 text-white border-blue-600'
+              :'bg-white text-slate-600 border-slate-300')}>
+            {ch === 'EMAIL' ? <Mail className="h-3.5 w-3.5" /> : ch === 'TG' ? <TelegramIcon className="h-3.5 w-3.5" /> : 'Нет'}
+          </button>
+        ))}
+        {channel && (
+          <input value={address} onChange={e => setAddress(e.target.value)}
+            className="flex-1 border rounded px-2 py-0.5 text-xs min-w-[140px]"
+            placeholder={channel==='TG'?'chat_id / @username':'email@example.com'} />
+        )}
+      </div>
+
+      <div className="flex gap-2 items-center">
+        <button onClick={save} disabled={saving}
+          className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 disabled:opacity-50">
+          {saving ? 'Сохранение…' : 'Сохранить'}
+        </button>
+        <button onClick={del} className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200">
+          Удалить
+        </button>
+        {msg && <span className="text-xs text-slate-500">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+const POLL_INTERVAL = 30_000; // 30 sec background refresh
+
+// ─── Documents tab ─────────────────────────────────────────────────────────────
+function DocsTab({ clientId }: { clientId: string }) {  // clientId == counterparty Ref_Key
+  const [docs,        setDocs]        = useState<ApiDocFull[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [selected,    setSelected]    = useState<ApiDocFull | null>(null);
+  const [subTab,      setSubTab]      = useState<DocSubTab>('invoices');
+  const [scheduling,  setScheduling]  = useState<ApiDocFull | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [newIds,      setNewIds]      = useState<Set<string>>(new Set());
+
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const res = await apiFetch(API.documents.list());
       if (res.ok) {
         const all: ApiDocFull[] = await res.json();
-        setDocs(all.filter((d) => d.counterparty.id === clientId));
+        const filtered = all.filter((d) => d.counterparty.id === clientId);
+        if (silent) {
+          setDocs(prev => {
+            const prevIds = new Set(prev.map(d => d.id));
+            const fresh = filtered.filter(d => !prevIds.has(d.id));
+            if (fresh.length > 0) {
+              setNewIds(ids => new Set(Array.from(ids).concat(fresh.map(d => d.id))));
+              setTimeout(() => setNewIds(ids => {
+                const next = new Set(Array.from(ids));
+                fresh.forEach(d => next.delete(d.id));
+                return next;
+              }), 2500);
+            }
+            return filtered;
+          });
+        } else {
+          setDocs(filtered);
+        }
+        setLastUpdated(new Date());
       }
     } catch {}
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, [clientId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const id = setInterval(() => load(true), POLL_INTERVAL);
+    return () => clearInterval(id);
+  }, [load]);
 
   const filtered = useMemo(() => {
     const sub = DOC_SUB_TABS.find((s) => s.id === subTab);
@@ -199,11 +397,15 @@ function DocsTab({ clientId }: { clientId: string }) {
         ))}
       </div>
 
-      {filtered.length === 0 ? (
+      {subTab === 'contracts' ? (
+        <div className="flex-1 overflow-auto p-4">
+          <ContractsTab counterpartyKey={clientId} />
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-2 text-xs text-muted-foreground">
           <FileText className="h-10 w-10 text-slate-100" />
           <p>Нет документов</p>
-          <button onClick={load} className="text-blue-500 hover:text-blue-700 underline">Обновить</button>
+          <button onClick={() => load()} className="text-blue-500 hover:text-blue-700 underline">Обновить</button>
         </div>
       ) : (
         <>
@@ -215,14 +417,21 @@ function DocsTab({ clientId }: { clientId: string }) {
                   <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Дата</th>
                   <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Статус</th>
                   <th className="text-right px-4 py-2.5 font-medium text-muted-foreground">Сумма</th>
+                  <th className="px-3 py-2.5"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {filtered.map((doc) => (
+                  <>
                   <tr
                     key={doc.id}
                     onClick={() => setSelected(doc)}
-                    className="hover:bg-slate-50 cursor-pointer transition-colors"
+                    className={cn(
+                      'cursor-pointer transition-colors',
+                      newIds.has(doc.id)
+                        ? 'bg-blue-50 hover:bg-blue-100 animate-pulse'
+                        : 'hover:bg-slate-50',
+                    )}
                   >
                     <td className={cn('px-4 py-3 font-mono font-medium', doc.deletion_mark ? 'line-through text-slate-400' : 'text-slate-800')}>{doc.number}</td>
                     <td className="px-3 py-3 text-muted-foreground">
@@ -259,14 +468,48 @@ function DocsTab({ clientId }: { clientId: string }) {
                     <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-800">
                       {doc.amount.toLocaleString('ru-RU', { minimumFractionDigits: 0 })} ₽
                     </td>
+                    <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
+                      <button
+                        onClick={() => setScheduling(scheduling?.id === doc.id ? null : doc)}
+                        className={cn(
+                          'inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors',
+                          scheduling?.id === doc.id
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-slate-600 border-slate-200 hover:border-blue-400 hover:text-blue-600'
+                        )}
+                        title="Создать по расписанию"
+                      >
+                        <CalendarClock className="h-3 w-3" />
+                        Расписание
+                      </button>
+                    </td>
                   </tr>
+                  {scheduling?.id === doc.id && (
+                    <tr key={doc.id + '-sched'}>
+                      <td colSpan={5} className="px-4 py-2">
+                        <DocSchedulePanel
+                          doc={doc}
+                          counterpartyKey={clientId}
+                          onClose={() => setScheduling(null)}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                  </>
                 ))}
               </tbody>
             </table>
           </div>
 
           <div className="flex-shrink-0 border-t border-slate-100 px-4 py-2.5 flex justify-between items-center bg-slate-50">
-            <span className="text-xs text-muted-foreground">{filtered.length} {filtered.length === 1 ? 'документ' : 'документов'}</span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground">{filtered.length} {filtered.length === 1 ? 'документ' : 'документов'}</span>
+              {lastUpdated && (
+                <span className="text-[11px] text-slate-400">
+                  обновлено {lastUpdated.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+              )}
+            </div>
             <span className="text-xs font-semibold text-slate-800">
               Итого: {total.toLocaleString('ru-RU')} ₽
             </span>
@@ -500,6 +743,7 @@ function IntegrationsTab({ activeChannels }: { activeChannels: IntegrationKey[] 
 
 // ─── Portal tab ────────────────────────────────────────────────────────────────
 function PortalTab({ clientId }: { clientId: string }) {
+  const { firmId } = useParams<{ firmId: string }>();
   const { clients } = useClientStore();
   const client = clients.find((c) => c.id === clientId);
 
@@ -513,7 +757,7 @@ function PortalTab({ clientId }: { clientId: string }) {
 
   // Load existing login from server on mount
   useEffect(() => {
-    fetch(API.portal.credentials(clientId))
+    apiFetch(API.portal.credentials(clientId))
       .then((r) => r.ok ? r.json() : { exists: false })
       .then((d) => { if (d.exists) setExistingLogin(d.login); })
       .catch(() => {});
@@ -524,11 +768,9 @@ function PortalTab({ clientId }: { clientId: string }) {
     setSaving(true);
     setError('');
     try {
-      const res = await fetch(API.portal.setCredentials(), {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          tenant_id:   1,
+      const res = await apiFetch(API.portal.setCredentials(), {
+        method: 'POST',
+        body:   JSON.stringify({
           client_id:   clientId,
           client_name: client?.name ?? clientId,
           login:       login.trim(),
@@ -550,7 +792,8 @@ function PortalTab({ clientId }: { clientId: string }) {
     }
   };
 
-  const portalUrl = typeof window !== 'undefined' ? `${window.location.origin}/portal` : '/portal';
+  const portalPath = `/cli/${firmId}/login`;
+  const portalUrl  = typeof window !== 'undefined' ? `${window.location.origin}${portalPath}` : portalPath;
 
   return (
     <div className="p-6 space-y-6 overflow-y-auto h-full max-w-lg">
@@ -640,10 +883,12 @@ function PortalTab({ clientId }: { clientId: string }) {
 export function ClientDetail({ clientId }: { clientId: string }) {
   const router       = useRouter();
   const searchParams = useSearchParams();
+  const { firmId }   = useParams<{ firmId: string }>();
+  const clientsHref  = `/cli/${firmId}/clients`;
 
   // Tab state lives in URL — survives page refresh
   const activeTab  = (searchParams.get('tab') as Tab | null) ?? 'chat';
-  const setActiveTab = (tab: Tab) => router.replace(`/clients/${clientId}?tab=${tab}`);
+  const setActiveTab = (tab: Tab) => router.replace(`${clientsHref}/${clientId}?tab=${tab}`);
 
   const { clients } = useClientStore();
   const client = clients.find((c) => c.id === clientId);
@@ -653,7 +898,7 @@ export function ClientDetail({ clientId }: { clientId: string }) {
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
           <p className="text-sm text-muted-foreground">Клиент не найден</p>
-          <Link href="/clients" className="text-xs text-blue-600 hover:underline mt-2 block">← Список клиентов</Link>
+          <Link href={clientsHref} className="text-xs text-blue-600 hover:underline mt-2 block">← Список клиентов</Link>
         </div>
       </div>
     );
@@ -663,7 +908,7 @@ export function ClientDetail({ clientId }: { clientId: string }) {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="bg-white border-b border-slate-100 px-6 pt-4 flex-shrink-0">
-        <Link href="/clients" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-slate-700 mb-3">
+        <Link href={clientsHref} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-slate-700 mb-3">
           <ArrowLeft className="h-3 w-3" />
           Все клиенты
         </Link>

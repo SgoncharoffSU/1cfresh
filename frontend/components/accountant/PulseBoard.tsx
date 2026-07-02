@@ -1,6 +1,7 @@
 'use client';
 import { useMemo } from 'react';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import {
   BarChart3, MessageSquare, CheckSquare, Users, ArrowRight, Clock,
 } from 'lucide-react';
@@ -10,6 +11,7 @@ import { useTaskStore }   from '@/store/useTaskStore';
 import { cn, formatTime } from '@/lib/utils';
 
 export function PulseBoard() {
+  const { firmId } = useParams<{ firmId: string }>();
   const messages = useChatStore((s) => s.messages);
   const clients  = useClientStore((s) => s.clients);
   const tasks    = useTaskStore((s) => s.tasks);
@@ -42,20 +44,20 @@ export function PulseBoard() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-4 gap-3">
-        <StatCard href="/clients"   icon={Users}         label="Клиентов"       value={clients.length}        color="blue" />
-        <StatCard href="/chats"     icon={MessageSquare} label="Активных чатов" value={activeChatCount}       color="violet" />
-        <StatCard href="/tasks"     icon={CheckSquare}   label="Задач в работе" value={activeTasks.length}    color="orange" />
-        <StatCard                   icon={Clock}         label="Необработанных" value={unprocessed.length}    color="red" />
+        <StatCard href={`/cli/${firmId}/clients`} icon={Users}         label="Клиентов"       value={clients.length}        color="blue" />
+        <StatCard href={`/cli/${firmId}/chats`}   icon={MessageSquare} label="Активных чатов" value={activeChatCount}       color="violet" />
+        <StatCard href={`/cli/${firmId}/tasks`}   icon={CheckSquare}   label="Задач в работе" value={activeTasks.length}    color="orange" />
+        <StatCard                                 icon={Clock}         label="Необработанных" value={unprocessed.length}    color="red" />
       </div>
 
       {/* Two columns */}
       <div className="grid grid-cols-2 gap-6">
         {/* Chats */}
-        <Section title="Чаты с клиентами" href="/chats" linkLabel="Все чаты">
+        <Section title="Чаты с клиентами" href={`/cli/${firmId}/chats`} linkLabel="Все чаты">
           {chatGroups.length === 0
             ? <Empty text="Нет сообщений" />
             : chatGroups.slice(0, 6).map(({ client, unread, oldest, last }) => (
-              <Link key={client.id} href={`/clients/${client.id}`}
+              <Link key={client.id} href={`/cli/${firmId}/clients/${client.id}`}
                 className="flex items-center gap-2.5 px-4 py-2.5 hover:bg-slate-50 transition-colors">
                 <div className={cn('h-8 w-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold', client.color)}>
                   {client.initials}
@@ -80,7 +82,7 @@ export function PulseBoard() {
         </Section>
 
         {/* Tasks */}
-        <Section title="Задачи в работе" href="/tasks" linkLabel="Все задачи">
+        <Section title="Задачи в работе" href={`/cli/${firmId}/tasks`} linkLabel="Все задачи">
           {activeTasks.length === 0
             ? <Empty text="Нет активных задач" />
             : activeTasks.slice(0, 6).map((task) => {

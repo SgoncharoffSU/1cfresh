@@ -12,7 +12,6 @@ export default function RegisterPage() {
   const setAuth = useAuthStore((s) => s.setAuth);
 
   const [firmName,  setFirmName]  = useState('');
-  const [firmInn,   setFirmInn]   = useState('');
   const [name,      setName]      = useState('');
   const [email,     setEmail]     = useState('');
   const [password,  setPassword]  = useState('');
@@ -29,7 +28,7 @@ export default function RegisterPage() {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
           firm_name: firmName,
-          firm_inn:  firmInn || null,
+          firm_inn:  null,
           name,
           email,
           password,
@@ -46,11 +45,11 @@ export default function RegisterPage() {
         email:    data.email,
         role:     data.role,
         firmName: firmName,
-        firmInn:  firmInn || null,
+        firmInn:  null,
         firmPlan: 'free',
       };
       setAuth(data.access_token, user);
-      router.push('/onboarding');
+      router.push(`/cli/${data.firm_id}/onboarding`);
     } catch {
       setError('Ошибка соединения с сервером');
     } finally {
@@ -87,18 +86,6 @@ export default function RegisterPage() {
               placeholder="ООО «Учёт и порядок»"
             />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">ИНН (необязательно)</label>
-            <input
-              type="text"
-              value={firmInn}
-              onChange={(e) => setFirmInn(e.target.value)}
-              maxLength={12}
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="7700000000"
-            />
-          </div>
-
           <hr className="border-slate-100" />
 
           <div>

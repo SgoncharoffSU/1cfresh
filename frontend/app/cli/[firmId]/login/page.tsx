@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { LogIn } from 'lucide-react';
 import { Button }  from '@/components/ui/button';
 import { Input }   from '@/components/ui/input';
@@ -11,34 +11,43 @@ import { LogoIcon } from '@/components/icons/LogoIcon';
 
 export default function PortalLoginPage() {
   const router = useRouter();
-  const { login, clientId, _hasHydrated } = usePortalAuthStore();
+  const { firmId: firmIdParam } = useParams<{ firmId: string }>();
+  const { login, clientId, firmId, abonentNumber, _hasHydrated } = usePortalAuthStore();
   const [loginVal,  setLoginVal]  = useState('');
   const [password,  setPassword]  = useState('');
   const [error,     setError]     = useState('');
   const [loading,   setLoading]   = useState(false);
 
   useEffect(() => {
-    if (_hasHydrated && clientId) router.replace('/portal/dashboard');
-  }, [_hasHydrated, clientId, router]);
+    if (_hasHydrated && clientId && String(firmId) === firmIdParam) {
+      router.replace(`/cli/${firmIdParam}/${abonentNumber}/dashboard`);
+    }
+  }, [_hasHydrated, clientId, firmId, abonentNumber, firmIdParam, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const res = await fetch(API.portal.login(), {
+      const res = await fetch(API.portal.login(Number(firmIdParam)), {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ login: loginVal.trim(), password, tenant_id: 1 }),
+        body:    JSON.stringify({ login: loginVal.trim(), password }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setError(data.detail ?? 'Неверный логин или пароль');
         return;
       }
-      const { client_id, client_name } = await res.json();
-      login(client_id, client_name);
-      router.push('/portal/dashboard');
+      const data = await res.json();
+      login({
+        token:         data.access_token,
+        clientId:      data.client_id,
+        clientName:    data.client_name,
+        firmId:        data.firm_id,
+        abonentNumber: data.abonent_number,
+      });
+      router.push(`/cli/${data.firm_id}/${data.abonent_number}/dashboard`);
     } catch {
       setError('Ошибка соединения с сервером');
     } finally {

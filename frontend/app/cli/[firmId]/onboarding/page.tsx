@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useParams } from 'next/navigation';
 import { CheckCircle2, Database, Send, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import { LogoIcon } from '@/components/icons/LogoIcon';
 import { TelegramIcon } from '@/components/icons/TelegramIcon';
@@ -12,7 +12,15 @@ type Step = '1c' | 'tg' | 'done';
 
 export default function OnboardingPage() {
   const router  = useRouter();
-  const { user, setUser } = useAuthStore();
+  const { firmId: firmIdParam } = useParams<{ firmId: string }>();
+  const { token, user, setUser, _hasHydrated } = useAuthStore();
+
+  // Same UX-only guard pattern as cli/[firmId]/(admin)/layout.tsx.
+  useEffect(() => {
+    if (!_hasHydrated) return;
+    if (!token || !user) { router.replace('/login'); return; }
+    if (String(user.firmId) !== firmIdParam) { router.replace(`/cli/${user.firmId}/onboarding`); }
+  }, [token, user, router, _hasHydrated, firmIdParam]);
 
   const [step, setStep] = useState<Step>('1c');
 
@@ -64,6 +72,11 @@ export default function OnboardingPage() {
   ];
 
   const stepIdx = STEPS.findIndex((s) => s.id === step);
+
+  if (!_hasHydrated) return (
+    <div className="h-8 w-8 rounded-full border-2 border-slate-200 border-t-slate-600 animate-spin" />
+  );
+  if (!token || !user || String(user.firmId) !== firmIdParam) return null;
 
   return (
     <div className="w-full max-w-lg">
@@ -242,7 +255,7 @@ export default function OnboardingPage() {
               </p>
             )}
             <button
-              onClick={() => router.push('/dashboard')}
+              onClick={() => router.push(`/cli/${firmIdParam}/dashboard`)}
               className="flex items-center justify-center gap-2 w-full py-3 bg-slate-900 text-white font-medium rounded-xl hover:bg-slate-800 transition-colors"
             >
               Перейти в рабочее место

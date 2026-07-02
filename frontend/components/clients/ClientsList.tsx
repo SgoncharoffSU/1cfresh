@@ -1,6 +1,6 @@
 'use client';
 import { useMemo, useEffect, useState, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { Plus, MessageSquare, MessageCircle, Zap, FileText, ChevronRight, RefreshCw, CheckCircle2, Trash2 } from 'lucide-react';
 import { useClientStore } from '@/store/useClientStore';
 import { useChatStore }   from '@/store/useChatStore';
@@ -33,6 +33,7 @@ export function ClientsList() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
+  const { firmId } = useParams<{ firmId: string }>();
 
   const loadCounterparties = useCallback(async () => {
     try {
@@ -150,7 +151,7 @@ export function ClientsList() {
                 'group grid grid-cols-[1fr_auto_auto_auto_auto] items-center px-4 py-2.5 hover:bg-slate-50 transition-colors cursor-pointer',
                 i < enriched.length - 1 && 'border-b border-slate-50',
               )}
-              onClick={() => router.push(`/clients/${c.id}`)}
+              onClick={() => router.push(`/cli/${firmId}/clients/${c.id}`)}
             >
               {/* Name + INN */}
               <div className="flex items-center gap-3 min-w-0">

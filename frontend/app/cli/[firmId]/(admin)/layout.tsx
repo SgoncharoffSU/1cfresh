@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter, useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, Users, MessageSquare, CheckSquare, FlaskConical, X, LogOut, CreditCard } from 'lucide-react';
+import { BarChart3, Users, MessageSquare, CheckSquare, FlaskConical, X, LogOut, CreditCard, Menu, RefreshCw } from 'lucide-react';
 import { TrialBanner } from '@/components/billing/TrialBanner';
 import { LogoIcon }          from '@/components/icons/LogoIcon';
 import { StoreInitializer }  from '@/components/StoreInitializer';
@@ -12,6 +12,7 @@ import { PortalInboxPoller }   from '@/components/PortalInboxPoller';
 import { LocalDataMigrationBanner } from '@/components/LocalDataMigrationBanner';
 import { SyncStatusBar }     from '@/components/SyncStatusBar';
 import { cn } from '@/lib/utils';
+import { API, apiFetch } from '@/lib/api';
 import { useAppStore }     from '@/store/useAppStore';
 import { useChatStore }    from '@/store/useChatStore';
 import { useClientStore }  from '@/store/useClientStore';
@@ -19,13 +20,15 @@ import { useAuthStore }    from '@/store/useAuthStore';
 import { usePendingStore } from '@/store/usePendingStore';
 import { TEST_CREDENTIALS } from '@/constants/client';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const NAV_ITEMS = [
   { seg: 'dashboard', label: 'Обзор',    icon: BarChart3     },
   { seg: 'clients',   label: 'Клиенты',  icon: Users         },
   { seg: 'chats',     label: 'Чаты',     icon: MessageSquare },
   { seg: 'tasks',     label: 'Задачи',   icon: CheckSquare   },
-  { seg: 'billing',   label: 'Подписка', icon: CreditCard    },
 ];
 
 function DemoBanner() {
@@ -88,6 +91,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
   const chatBadge = unprocessedCount + pendingCount;
 
+  const [syncing, setSyncing] = useState(false);
+  const handleSync = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      await apiFetch(API.documents.sync(), { method: 'POST' });
+    } catch {
+      // SyncStatusBar surfaces detailed sync status/errors at the bottom of the page.
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   // Frontend guard only (UX) — the backend always scopes data from the JWT's own
   // firm_id, never from this URL segment, so this redirect can't be relied on for
   // isolation, only for not showing a firm's own chrome under the wrong URL.
@@ -119,6 +135,30 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <LocalDataMigrationBanner />
       <DemoBanner />
       <TrialBanner />
+
+      {/* Top bar: hamburger menu — подписка и синхронизация */}
+      <div className="flex-shrink-0 h-10 bg-white border-b border-slate-100 flex items-center justify-end px-3">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              aria-label="Меню"
+              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+            >
+              <Menu className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuItem onClick={() => router.push(`/cli/${firmIdParam}/billing`)}>
+              <CreditCard className="h-3.5 w-3.5 mr-2" />
+              Подписка
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleSync} disabled={syncing}>
+              <RefreshCw className={cn('h-3.5 w-3.5 mr-2', syncing && 'animate-spin')} />
+              {syncing ? 'Синхронизация…' : 'Синхронизация'}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
       {/* Body row: sidebar (desktop) + main */}
       <div className="flex flex-1 overflow-hidden min-h-0">

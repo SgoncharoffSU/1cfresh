@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { API } from '@/lib/api';
+import { API, apiFetch } from '@/lib/api';
 
 type SyncState = 'idle' | 'syncing' | 'ok' | 'error';
 
@@ -21,7 +21,7 @@ export function SyncStatusBar() {
 
   const fetchLastSync = useCallback(async () => {
     try {
-      const res = await fetch(API.documents.list());
+      const res = await apiFetch(API.documents.list());
       if (!res.ok) return;
       const docs: { synced_at: string }[] = await res.json();
       if (docs.length > 0) {
@@ -41,7 +41,7 @@ export function SyncStatusBar() {
     setSyncState('syncing');
     setResult('');
     try {
-      const res = await fetch(API.documents.sync(), { method: 'POST' });
+      const res = await apiFetch(API.documents.sync(), { method: 'POST' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const inv  = data.invoices ?? 0;

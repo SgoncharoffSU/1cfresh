@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Building2, ChevronRight, Search } from 'lucide-react';
 import { API, superAdminApiFetch } from '@/lib/api';
-import { cn } from '@/lib/utils';
+import { cn, accountNumber } from '@/lib/utils';
 
 interface FirmSummary {
   id: number;
@@ -37,7 +37,7 @@ export default function SuperAdminFirmsPage() {
     !query.trim() ||
     f.name.toLowerCase().includes(query.toLowerCase()) ||
     (f.inn ?? '').includes(query) ||
-    String(f.id) === query.trim(),
+    String(accountNumber(f.id)) === query.trim(),
   );
 
   return (
@@ -52,7 +52,7 @@ export default function SuperAdminFirmsPage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Название, ИНН или ID…"
+            placeholder="Название, ИНН или номер аккаунта…"
             className="pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
           />
         </div>
@@ -75,7 +75,7 @@ export default function SuperAdminFirmsPage() {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{firm.name}</p>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  #{firm.id}{firm.inn ? ` · ИНН ${firm.inn}` : ''} · {firm.user_count} польз.
+                  #{accountNumber(firm.id)}{firm.inn ? ` · ИНН ${firm.inn}` : ''} · {firm.user_count} польз.
                 </p>
               </div>
               <span className={cn(

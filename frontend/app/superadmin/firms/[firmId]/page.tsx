@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, LogIn, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { API, superAdminApiFetch } from '@/lib/api';
+import { accountNumber } from '@/lib/utils';
 
 interface FirmUser {
   id: number;
@@ -93,7 +94,7 @@ export default function SuperAdminFirmDetailPage() {
       <div>
         <h1 className="text-xl font-bold text-slate-900 dark:text-white">{detail.firm.name}</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          #{detail.firm.id}{detail.firm.inn ? ` · ИНН ${detail.firm.inn}` : ''} · {detail.firm.subscription_status}
+          #{accountNumber(detail.firm.id)}{detail.firm.inn ? ` · ИНН ${detail.firm.inn}` : ''} · {detail.firm.subscription_status}
           {detail.firm.subscription_plan ? ` (${detail.firm.subscription_plan})` : ''}
         </p>
       </div>

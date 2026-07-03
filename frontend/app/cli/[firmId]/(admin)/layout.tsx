@@ -12,7 +12,7 @@ import { TelegramInboxPoller } from '@/components/TelegramInboxPoller';
 import { PortalInboxPoller }   from '@/components/PortalInboxPoller';
 import { LocalDataMigrationBanner } from '@/components/LocalDataMigrationBanner';
 import { SyncStatusBar }     from '@/components/SyncStatusBar';
-import { cn } from '@/lib/utils';
+import { cn, accountNumber } from '@/lib/utils';
 import { API, apiFetch } from '@/lib/api';
 import { useAppStore }     from '@/store/useAppStore';
 import { useChatStore }    from '@/store/useChatStore';
@@ -155,7 +155,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
             <DropdownMenuLabel className="font-normal text-[11px] text-muted-foreground">
-              Аккаунт №{firmIdParam}
+              Аккаунт №{accountNumber(firmIdParam)}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => router.push(`/cli/${firmIdParam}/billing`)}>
@@ -179,7 +179,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <LogoIcon className="h-9 w-auto flex-shrink-0" />
             <div className="min-w-0">
               <p className="text-sm font-bold leading-none truncate">{user?.firmName ?? 'BuhgSaaS'}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">ЭДО · Бухгалтерия · №{firmIdParam}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">ЭДО · Бухгалтерия · №{accountNumber(firmIdParam)}</p>
             </div>
           </div>
           <nav className="flex-1 p-3 space-y-0.5">

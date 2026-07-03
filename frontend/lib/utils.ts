@@ -18,3 +18,7 @@ export const formatDateTime = (d: Date | string) => `${formatDate(d)} ${formatTi
 
 export const isOverdue = (dueDate?: Date | string) =>
   dueDate ? new Date(dueDate) < new Date() : false;
+
+/** Firm's user-facing account number — offsets the internal firm.id so displayed
+ * numbers start at 1001 instead of 1, without touching the real primary key. */
+export const accountNumber = (firmId: number | string) => Number(firmId) + 1000;

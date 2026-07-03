@@ -22,7 +22,8 @@ import { usePendingStore } from '@/store/usePendingStore';
 import { TEST_CREDENTIALS } from '@/constants/client';
 import { Button } from '@/components/ui/button';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
 const NAV_ITEMS = [
@@ -153,6 +154,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuLabel className="font-normal text-[11px] text-muted-foreground">
+              Аккаунт №{firmIdParam}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => router.push(`/cli/${firmIdParam}/billing`)}>
               <CreditCard className="h-3.5 w-3.5 mr-2" />
               Подписка
@@ -174,7 +179,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <LogoIcon className="h-9 w-auto flex-shrink-0" />
             <div className="min-w-0">
               <p className="text-sm font-bold leading-none truncate">{user?.firmName ?? 'BuhgSaaS'}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">ЭДО · Бухгалтерия</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">ЭДО · Бухгалтерия · №{firmIdParam}</p>
             </div>
           </div>
           <nav className="flex-1 p-3 space-y-0.5">

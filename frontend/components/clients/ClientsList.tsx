@@ -1,7 +1,7 @@
 'use client';
-import { useMemo, useEffect, useState, useCallback, useRef } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { Plus, MessageSquare, MessageCircle, Zap, FileText, ChevronRight, RefreshCw, CheckCircle2, Trash2 } from 'lucide-react';
+import { Plus, MessageSquare, MessageCircle, Zap, FileText, ChevronRight, Trash2 } from 'lucide-react';
 import { useClientStore } from '@/store/useClientStore';
 import { useChatStore }   from '@/store/useChatStore';
 import { Button }         from '@/components/ui/button';
@@ -9,7 +9,7 @@ import { TelegramIcon }   from '@/components/icons/TelegramIcon';
 import { AiChatIcon }     from '@/components/icons/AiChatIcon';
 import { IntegrationKey } from '@/types';
 import { cn, formatTime } from '@/lib/utils';
-import { API } from '@/lib/api';
+import { ConnectOnecModal } from '@/components/clients/ConnectOnecModal';
 
 const CH_ICON: Record<IntegrationKey, React.ReactNode> = {
   TG:            <TelegramIcon className="h-3 w-3" />,
@@ -24,63 +24,12 @@ const CH_ICON: Record<IntegrationKey, React.ReactNode> = {
 };
 
 export function ClientsList() {
-  const { clients, addFromApi, removeClient } = useClientStore();
+  const { clients, addClient, addClientRaw, removeClient } = useClientStore();
   const { messages, removeClientMessages }    = useChatStore();
-  const [syncing,   setSyncing]   = useState(false);
-  const [syncDone,  setSyncDone]  = useState(false);
-  const [lastSync,  setLastSync]  = useState<Date | null>(null);
-  const [syncInfo,  setSyncInfo]  = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
   const router = useRouter();
   const { firmId } = useParams<{ firmId: string }>();
-
-  const loadCounterparties = useCallback(async () => {
-    try {
-      const res = await fetch(API.documents.counterparties());
-      if (res.ok) addFromApi(await res.json());
-    } catch {}
-  }, [addFromApi]);
-
-  const fetchLastSync = useCallback(async () => {
-    try {
-      const res = await fetch(API.documents.list());
-      if (res.ok) {
-        const docs: { synced_at: string }[] = await res.json();
-        if (docs.length > 0) {
-          const maxTs = docs.reduce((m, d) => (d.synced_at > m ? d.synced_at : m), docs[0].synced_at);
-          setLastSync(new Date(maxTs));
-        }
-      }
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    loadCounterparties();
-    fetchLastSync();
-  }, [loadCounterparties, fetchLastSync]);
-
-  const handleSync = useCallback(async () => {
-    if (syncing) return;
-    setSyncing(true);
-    setSyncDone(false);
-    setSyncInfo('');
-    try {
-      const res = await fetch(API.documents.sync(), { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        await loadCounterparties();
-        await fetchLastSync();
-        const n = (data.invoices ?? 0) + (data.sales ?? 0);
-        setSyncInfo(`+${n} документов`);
-        setSyncDone(true);
-        if (timerRef.current) clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => setSyncDone(false), 5000);
-      }
-    } finally {
-      setSyncing(false);
-    }
-  }, [syncing, loadCounterparties, fetchLastSync]);
 
   const handleDelete = useCallback((clientId: string, e: React.MouseEvent) => {
     e.preventDefault();
@@ -106,22 +55,7 @@ export function ClientsList() {
           <p className="text-xs text-muted-foreground mt-0.5">{clients.length} контрагентов</p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            title="Синхронизировать сейчас"
-            onClick={handleSync}
-            disabled={syncing}
-            className={cn(
-              'h-8 flex items-center gap-1.5 px-2.5 rounded-lg border border-slate-200 bg-white text-slate-500 text-xs',
-              'hover:bg-slate-50 hover:text-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
-              syncDone && 'border-emerald-300 bg-emerald-50 text-emerald-600',
-            )}
-          >
-            {syncDone
-              ? <><CheckCircle2 className="h-3.5 w-3.5" /><span>Готово</span></>
-              : <><RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} /><span>{syncing ? 'Синхронизация…' : '1С'}</span></>
-            }
-          </button>
-          <Button size="sm" className="gap-1.5 h-8 text-xs">
+          <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setShowAddModal(true)}>
             <Plus className="h-3.5 w-3.5" />
             Добавить
           </Button>
@@ -245,23 +179,23 @@ export function ClientsList() {
         )}
       </div>
 
-      {/* Sync status footer */}
-      <div className="flex items-center justify-between px-1 py-1.5 text-[11px] text-muted-foreground">
-        <span>
-          {lastSync
-            ? <>Синхронизировано с 1С: <span className="font-medium text-slate-600">
-                {lastSync.toLocaleString('ru-RU', {
-                  day: '2-digit', month: '2-digit', year: 'numeric',
-                  hour: '2-digit', minute: '2-digit', second: '2-digit',
-                })}
-              </span></>
-            : 'Нет данных из 1С'}
-          {syncDone && syncInfo && (
-            <span className="ml-2 text-emerald-600 font-medium">{syncInfo}</span>
-          )}
-        </span>
-        <span className="text-slate-300">{clients.length} контрагентов</span>
-      </div>
+      {showAddModal && (
+        <ConnectOnecModal
+          clientId={null}
+          onClose={() => setShowAddModal(false)}
+          onConnected={({ client_id, name, inn }) => {
+            addClientRaw({
+              id: client_id, name, shortName: name.split(' ').slice(0, 2).join(' '), inn,
+              initials: name.trim().split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase(),
+              color: 'bg-blue-100 text-blue-700',
+              activeChannels: ['1C'], channelIds: { '1C': client_id },
+            });
+          }}
+          onCreatePlain={(name, inn) => {
+            addClient({ name, shortName: name.split(' ').slice(0, 2).join(' '), inn, initials: name.trim().split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase(), activeChannels: [], channelIds: {} });
+          }}
+        />
+      )}
     </div>
   );
 }

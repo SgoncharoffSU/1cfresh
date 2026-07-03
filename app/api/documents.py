@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
+from app.api.deps import get_client_tenant
 from app.models.tenant import OneCDocument
 from app.models.schedule import DocumentSchedule
 from app.schemas.document import (
@@ -92,7 +93,7 @@ async def list_tabs():
 
 @router.get("/", response_model=List[DocumentOut])
 async def list_documents(
-    tenant_id: int = Query(1),
+    tenant_id: int = Depends(get_client_tenant),
     days: int = Query(90, ge=1, le=365),
     doc_type: Optional[str] = Query(None, description="INVOICE | SALE | FACTURA | CONTRACT"),
     db: AsyncSession = Depends(get_db),
@@ -109,6 +110,9 @@ async def list_documents(
     )
     if doc_type:
         q = q.where(OneCDocument.doc_type == doc_type.upper())
+    else:
+        # Contracts have their own /contracts/ endpoint; exclude from general list
+        q = q.where(OneCDocument.doc_type != "CONTRACT")
     q = q.order_by(OneCDocument.date.desc())
     result = await db.execute(q)
     docs = result.scalars().all()
@@ -133,7 +137,7 @@ async def list_documents(
 
 @router.get("/counterparties", response_model=List[CounterpartyOut])
 async def list_counterparties(
-    tenant_id: int = Query(1),
+    tenant_id: int = Depends(get_client_tenant),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -166,7 +170,8 @@ async def list_counterparties(
 
 @router.post("/sync", response_model=SyncResult)
 async def trigger_sync(
-    tenant_id: int = Query(1),
+    tenant_id: int = Depends(get_client_tenant),
+    db: AsyncSession = Depends(get_db),
 ):
     from app.tasks.sync_tasks import sync_one_tenant
     result = sync_one_tenant.delay(tenant_id)
@@ -199,12 +204,13 @@ class BasedOnResult(BaseModel):
 async def create_based_on(
     doc_ref_key: str,
     payload: BasedOnPayload,
+    tenant_id: int = Depends(get_client_tenant),
     db: AsyncSession = Depends(get_db),
 ):
     """Создать документ на основании (счёт-фактура или реализация) из счёта на оплату."""
     result = await db.execute(
         select(OneCDocument).where(
-            OneCDocument.tenant_id == payload.tenant_id,
+            OneCDocument.tenant_id == tenant_id,
             OneCDocument.ref_key   == doc_ref_key,
         )
     )
@@ -215,7 +221,7 @@ async def create_based_on(
     from sqlalchemy import select as sa_select
     from app.models.tenant import Tenant
     tenant_result = await db.execute(
-        sa_select(Tenant).where(Tenant.id == payload.tenant_id)
+        sa_select(Tenant).where(Tenant.id == tenant_id)
     )
     tenant = tenant_result.scalar_one_or_none()
     if not tenant:
@@ -264,11 +270,12 @@ class SendNowPayload(BaseModel):
 async def send_document_now(
     doc_ref_key: str,
     payload: SendNowPayload,
+    tenant_id: int = Depends(get_client_tenant),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(OneCDocument).where(
-            OneCDocument.tenant_id == payload.tenant_id,
+            OneCDocument.tenant_id == tenant_id,
             OneCDocument.ref_key   == doc_ref_key,
         )
     )
@@ -285,7 +292,7 @@ async def send_document_now(
         api_external = getattr(settings, "API_EXTERNAL_URL", "http://159.194.225.55:8018")
         print_url = (
             f"{api_external}/api/v1/documents/{doc_ref_key}/print"
-            f"?tenant_id={payload.tenant_id}"
+            f"?tenant_id={tenant_id}"
         )
 
         doc_date   = doc.date
@@ -318,7 +325,7 @@ async def send_document_now(
 
         now = _now_moscow()
         send_record = DocumentSchedule(
-            tenant_id         = payload.tenant_id,
+            tenant_id         = tenant_id,
             document_ref_key  = doc_ref_key,
             document_number   = doc.number or "",
             counterparty_key  = doc.counterparty_key or "",

@@ -48,8 +48,13 @@ async def get_current_user(
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 async def _first_tenant_id(db: AsyncSession, firm_id: int) -> Optional[int]:
+    """The firm's legacy/general-scope tenant (chat, tasks, portal) — never one of the
+    per-client 1C connections added via POST /clients/onec-connect, which must stay
+    invisible to this resolver or chat/portal scoping could randomly leak across clients."""
     res = await db.execute(
-        select(Tenant.id).where(Tenant.firm_id == firm_id).limit(1)
+        select(Tenant.id)
+        .where(Tenant.firm_id == firm_id, Tenant.client_contact_id.is_(None))
+        .limit(1)
     )
     row = res.first()
     return row[0] if row else None
@@ -172,8 +177,12 @@ async def setup_tenant(
     user: User = Depends(get_current_user),
     db:   AsyncSession = Depends(get_db),
 ):
-    """Save / update 1C OData credentials for the user's firm tenant."""
-    res    = await db.execute(select(Tenant).where(Tenant.firm_id == user.firm_id).limit(1))
+    """Save / update the firm's legacy/general-scope 1C connection (not a per-client one)."""
+    res    = await db.execute(
+        select(Tenant)
+        .where(Tenant.firm_id == user.firm_id, Tenant.client_contact_id.is_(None))
+        .limit(1)
+    )
     tenant = res.scalar_one_or_none()
 
     # Test connection before saving
@@ -223,8 +232,12 @@ async def get_tenant(
     user: User = Depends(get_current_user),
     db:   AsyncSession = Depends(get_db),
 ):
-    """Return current 1C connection settings for the user's firm."""
-    res    = await db.execute(select(Tenant).where(Tenant.firm_id == user.firm_id).limit(1))
+    """Return the firm's legacy/general-scope 1C connection settings (not a per-client one)."""
+    res    = await db.execute(
+        select(Tenant)
+        .where(Tenant.firm_id == user.firm_id, Tenant.client_contact_id.is_(None))
+        .limit(1)
+    )
     tenant = res.scalar_one_or_none()
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not configured")

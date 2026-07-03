@@ -50,17 +50,20 @@ export const API = {
     status:      ()           => `${BASE}/api/v1/telegram/status`,
     recentChats: ()           => `${BASE}/api/v1/telegram/recent-chats`,
   },
+  // Each client has their own 1C connection now, so every documents/contracts/
+  // doc-schedules call is scoped by client_id (resolved server-side to that
+  // client's own tenant via get_client_tenant), not a firm-wide tenant_id.
   documents: {
-    list:           (days = 90) =>
-      `${BASE}/api/v1/documents/?tenant_id=${getTenantId()}&days=${days}`,
-    sync:           () =>
-      `${BASE}/api/v1/documents/sync?tenant_id=${getTenantId()}`,
-    counterparties: () =>
-      `${BASE}/api/v1/documents/counterparties?tenant_id=${getTenantId()}`,
-    print:   (refKey: string) =>
-      `${BASE}/api/v1/documents/${refKey}/print?tenant_id=${getTenantId()}`,
-    sendNow: (refKey: string) =>
-      `${BASE}/api/v1/documents/${refKey}/send-now`,
+    list:           (clientId: string, days = 90) =>
+      `${BASE}/api/v1/documents/?client_id=${encodeURIComponent(clientId)}&days=${days}`,
+    sync:           (clientId: string) =>
+      `${BASE}/api/v1/documents/sync?client_id=${encodeURIComponent(clientId)}`,
+    counterparties: (clientId: string) =>
+      `${BASE}/api/v1/documents/counterparties?client_id=${encodeURIComponent(clientId)}`,
+    print:   (clientId: string, refKey: string) =>
+      `${BASE}/api/v1/documents/${refKey}/print?client_id=${encodeURIComponent(clientId)}`,
+    sendNow: (clientId: string, refKey: string) =>
+      `${BASE}/api/v1/documents/${refKey}/send-now?client_id=${encodeURIComponent(clientId)}`,
   },
   portal: {
     setCredentials: () => `${BASE}/api/v1/portal/set-credentials`,
@@ -82,6 +85,7 @@ export const API = {
       `${BASE}/api/v1/clients/${encodeURIComponent(id)}/channels/${encodeURIComponent(channel)}`,
     setPortalCreds:   (id: string) => `${BASE}/api/v1/clients/${encodeURIComponent(id)}/portal-credentials`,
     merge:            () => `${BASE}/api/v1/clients/merge`,
+    onecConnect:      () => `${BASE}/api/v1/clients/onec-connect`,
   },
   chat: {
     messages:     () => `${BASE}/api/v1/chat/messages`,
@@ -91,25 +95,25 @@ export const API = {
       `${BASE}/api/v1/chat/messages?client_id=${encodeURIComponent(clientId)}`,
   },
   contracts: {
-    list: (counterpartyKey?: string) => {
-      let u = `${BASE}/api/v1/contracts/?tenant_id=${getTenantId()}`;
+    list: (clientId: string, counterpartyKey?: string) => {
+      let u = `${BASE}/api/v1/contracts/?client_id=${encodeURIComponent(clientId)}`;
       if (counterpartyKey) u += `&counterparty_key=${encodeURIComponent(counterpartyKey)}`;
       return u;
     },
-    get:             (refKey: string) =>
-      `${BASE}/api/v1/contracts/${encodeURIComponent(refKey)}?tenant_id=${getTenantId()}`,
-    upsertSchedule:  (refKey: string, target = 'all', basis = 'CONTRACT') =>
-      `${BASE}/api/v1/contracts/${encodeURIComponent(refKey)}/schedule?tenant_id=${getTenantId()}&target=${target}&basis=${basis}`,
-    deleteSchedule:  (refKey: string, target = 'all') =>
-      `${BASE}/api/v1/contracts/${encodeURIComponent(refKey)}/schedule?tenant_id=${getTenantId()}&target=${target}`,
-    listSchedules:   (refKey: string) =>
-      `${BASE}/api/v1/contracts/${encodeURIComponent(refKey)}/schedules?tenant_id=${getTenantId()}`,
-    sync:            () =>
-      `${BASE}/api/v1/contracts/sync?tenant_id=${getTenantId()}`,
-    updateFields:    (refKey: string, target = 'all') =>
-      `${BASE}/api/v1/contracts/${encodeURIComponent(refKey)}/schedule/custom-fields?tenant_id=${getTenantId()}&target=${target}`,
-    nomenclature: () =>
-      `${BASE}/api/v1/contracts/nomenclature?tenant_id=${getTenantId()}`,
+    get:             (clientId: string, refKey: string) =>
+      `${BASE}/api/v1/contracts/${encodeURIComponent(refKey)}?client_id=${encodeURIComponent(clientId)}`,
+    upsertSchedule:  (clientId: string, refKey: string, target = 'all', basis = 'CONTRACT') =>
+      `${BASE}/api/v1/contracts/${encodeURIComponent(refKey)}/schedule?client_id=${encodeURIComponent(clientId)}&target=${target}&basis=${basis}`,
+    deleteSchedule:  (clientId: string, refKey: string, target = 'all') =>
+      `${BASE}/api/v1/contracts/${encodeURIComponent(refKey)}/schedule?client_id=${encodeURIComponent(clientId)}&target=${target}`,
+    listSchedules:   (clientId: string, refKey: string) =>
+      `${BASE}/api/v1/contracts/${encodeURIComponent(refKey)}/schedules?client_id=${encodeURIComponent(clientId)}`,
+    sync:            (clientId: string) =>
+      `${BASE}/api/v1/contracts/sync?client_id=${encodeURIComponent(clientId)}`,
+    updateFields:    (clientId: string, refKey: string, target = 'all') =>
+      `${BASE}/api/v1/contracts/${encodeURIComponent(refKey)}/schedule/custom-fields?client_id=${encodeURIComponent(clientId)}&target=${target}`,
+    nomenclature: (clientId: string) =>
+      `${BASE}/api/v1/contracts/nomenclature?client_id=${encodeURIComponent(clientId)}`,
   },
   billing: {
     status:        () => `${BASE}/api/v1/billing/status`,
@@ -124,15 +128,15 @@ export const API = {
     audit:       () => `${BASE}/api/v1/superadmin/audit`,
   },
   docSchedules: {
-    list:   (counterpartyKey?: string) => {
-      let u = `${BASE}/api/v1/doc-schedules/?tenant_id=${getTenantId()}`;
+    list:   (clientId: string, counterpartyKey?: string) => {
+      let u = `${BASE}/api/v1/doc-schedules/?client_id=${encodeURIComponent(clientId)}`;
       if (counterpartyKey) u += `&counterparty_key=${encodeURIComponent(counterpartyKey)}`;
       return u;
     },
-    create: () => `${BASE}/api/v1/doc-schedules/`,
-    update: (id: number) => `${BASE}/api/v1/doc-schedules/${id}`,
-    toggle: (id: number) => `${BASE}/api/v1/doc-schedules/${id}/toggle`,
-    delete: (id: number) => `${BASE}/api/v1/doc-schedules/${id}`,
+    create: (clientId: string) => `${BASE}/api/v1/doc-schedules/?client_id=${encodeURIComponent(clientId)}`,
+    update: (clientId: string, id: number) => `${BASE}/api/v1/doc-schedules/${id}?client_id=${encodeURIComponent(clientId)}`,
+    toggle: (clientId: string, id: number) => `${BASE}/api/v1/doc-schedules/${id}/toggle?client_id=${encodeURIComponent(clientId)}`,
+    delete: (clientId: string, id: number) => `${BASE}/api/v1/doc-schedules/${id}?client_id=${encodeURIComponent(clientId)}`,
   },
 };
 

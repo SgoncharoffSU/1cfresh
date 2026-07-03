@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
+from app.api.deps import get_client_tenant
 from app.models.schedule import DocumentSchedule
 from app.schemas.doc_schedule import DocScheduleCreate, DocScheduleOut, DocScheduleUpdate
 from app.services.schedule_service import compute_next_run, describe_schedule
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/doc-schedules", tags=["doc-schedules"])
 
 @router.get("/", response_model=List[DocScheduleOut])
 async def list_schedules(
-    tenant_id:        int            = Query(1),
+    tenant_id:        int            = Depends(get_client_tenant),
     counterparty_key: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -27,10 +28,14 @@ async def list_schedules(
 
 
 @router.post("/", response_model=DocScheduleOut, status_code=status.HTTP_201_CREATED)
-async def create_schedule(data: DocScheduleCreate, db: AsyncSession = Depends(get_db)):
+async def create_schedule(
+    data: DocScheduleCreate,
+    tenant_id: int = Depends(get_client_tenant),
+    db: AsyncSession = Depends(get_db),
+):
     desc = data.description or describe_schedule(data.schedule_type, data.schedule_config)
     obj = DocumentSchedule(
-        tenant_id         = data.tenant_id,
+        tenant_id         = tenant_id,
         document_ref_key  = data.document_ref_key,
         document_number   = data.document_number,
         counterparty_key  = data.counterparty_key,
@@ -55,11 +60,14 @@ async def create_schedule(data: DocScheduleCreate, db: AsyncSession = Depends(ge
 
 @router.put("/{schedule_id}", response_model=DocScheduleOut)
 async def update_schedule(
-    schedule_id: int, data: DocScheduleUpdate, db: AsyncSession = Depends(get_db),
+    schedule_id: int,
+    data: DocScheduleUpdate,
+    tenant_id: int = Depends(get_client_tenant),
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(DocumentSchedule).where(DocumentSchedule.id == schedule_id))
     obj = result.scalar_one_or_none()
-    if not obj:
+    if not obj or obj.tenant_id != tenant_id:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
     if data.schedule_type is not None:
@@ -90,10 +98,14 @@ async def update_schedule(
 
 
 @router.patch("/{schedule_id}/toggle", response_model=DocScheduleOut)
-async def toggle_schedule(schedule_id: int, db: AsyncSession = Depends(get_db)):
+async def toggle_schedule(
+    schedule_id: int,
+    tenant_id: int = Depends(get_client_tenant),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(select(DocumentSchedule).where(DocumentSchedule.id == schedule_id))
     obj = result.scalar_one_or_none()
-    if not obj:
+    if not obj or obj.tenant_id != tenant_id:
         raise HTTPException(status_code=404, detail="Schedule not found")
     obj.is_active   = not obj.is_active
     obj.error_count = 0
@@ -104,10 +116,14 @@ async def toggle_schedule(schedule_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_schedule(schedule_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_schedule(
+    schedule_id: int,
+    tenant_id: int = Depends(get_client_tenant),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(select(DocumentSchedule).where(DocumentSchedule.id == schedule_id))
     obj = result.scalar_one_or_none()
-    if not obj:
+    if not obj or obj.tenant_id != tenant_id:
         raise HTTPException(status_code=404, detail="Schedule not found")
     await db.delete(obj)
     await db.commit()

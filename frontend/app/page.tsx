@@ -453,12 +453,13 @@ export default function LandingPage() {
               features: [
                 'До 5 пользователей',
                 'До 30 клиентов',
+                'До 5 интеграций с 1С',
                 'Полный документооборот (счёт + реализация + СФ)',
                 'Telegram & Email уведомления',
                 'Безлимитные расписания',
                 'До 500 авто-документов в месяц',
               ],
-              overage: '+5 ₽ за документ сверх лимита',
+              overages: ['+5 ₽ за документ сверх лимита', '+500 ₽/мес за интеграцию с 1С сверх лимита'],
               cta: 'Начать 15 дней бесплатно',
               href: '/register',
               accent: true,
@@ -471,12 +472,13 @@ export default function LandingPage() {
               features: [
                 'Неограниченно пользователей',
                 'Неограниченно клиентов',
+                'Неограниченно интеграций с 1С',
                 'Безлимитные авто-документы',
                 'Приоритетная поддержка',
                 'Персональный онбординг',
                 'API доступ',
               ],
-              overage: '',
+              overages: [],
               cta: 'Начать 15 дней бесплатно',
               href: '/register',
               accent: false,
@@ -505,12 +507,12 @@ export default function LandingPage() {
                     <span className={plan.accent ? 'text-white/70' : 'text-slate-600 dark:text-white/70'}>{f}</span>
                   </li>
                 ))}
-                {plan.overage && (
-                  <li className="flex items-center gap-2.5 text-xs mt-1">
+                {plan.overages.map((o) => (
+                  <li key={o} className="flex items-center gap-2.5 text-xs mt-1">
                     <ArrowRight size={12} className={plan.accent ? 'text-white/30' : 'text-slate-300 dark:text-white/30'} />
-                    <span className={plan.accent ? 'text-white/40' : 'text-slate-400 dark:text-white/40'}>{plan.overage}</span>
+                    <span className={plan.accent ? 'text-white/40' : 'text-slate-400 dark:text-white/40'}>{o}</span>
                   </li>
-                )}
+                ))}
               </ul>
               <Link href={plan.href}
                 className={`mt-8 text-center text-sm font-semibold py-3 rounded-xl transition-all ${plan.accent ? 'bg-blue-500 hover:bg-blue-400 text-white shadow-lg' : 'bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 dark:text-slate-900 text-white'}`}>

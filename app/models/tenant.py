@@ -14,6 +14,10 @@ class Tenant(Base):
     id             = Column(Integer, primary_key=True, index=True)
     firm_id        = Column(Integer, ForeignKey("firms.id", ondelete="SET NULL"),
                             nullable=True, index=True)
+    # NULL = the firm's legacy/general-scope tenant (chat, tasks, portal — unchanged).
+    # Non-null = this specific client's own 1C:Fresh connection (one per client).
+    client_contact_id = Column(String(200), ForeignKey("client_contacts.id", ondelete="CASCADE"),
+                               nullable=True, unique=True, index=True)
     name           = Column(String(200), nullable=False)
     odata_url      = Column(String(500), nullable=False)
     odata_login    = Column(String(200), nullable=False)

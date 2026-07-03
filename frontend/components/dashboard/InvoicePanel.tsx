@@ -20,7 +20,7 @@ export interface ApiDocItem {
 
 export interface ApiDocFull {
   id:           string;
-
+  type:         string;
   number:       string;
   date:         string | null;
   amount:       number;
@@ -37,6 +37,7 @@ export interface ApiDocFull {
 
 interface Props {
   doc:      ApiDocFull | null;
+  clientId: string;
   onClose:  () => void;
   onScheduleCreated?: (s: DocSchedule) => void;
 }
@@ -56,7 +57,7 @@ const VAT_LABEL: Record<string, string> = {
   'НДС20/120': '20/120',
 };
 
-export function InvoicePanel({ doc, onClose, onScheduleCreated }: Props) {
+export function InvoicePanel({ doc, clientId, onClose, onScheduleCreated }: Props) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [sendNowOpen,  setSendNowOpen]  = useState(false);
   if (!doc) return null;
@@ -232,7 +233,7 @@ export function InvoicePanel({ doc, onClose, onScheduleCreated }: Props) {
           <div className="flex gap-2">
             {/* Print form */}
             <a
-              href={API.documents.print(doc.id)}
+              href={API.documents.print(clientId, doc.id)}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
@@ -269,6 +270,7 @@ export function InvoicePanel({ doc, onClose, onScheduleCreated }: Props) {
       {scheduleOpen && (
         <ScheduleModal
           doc={doc}
+          clientId={clientId}
           existing={null}
           onClose={() => setScheduleOpen(false)}
           onSaved={(s) => { onScheduleCreated?.(s); }}
@@ -277,6 +279,7 @@ export function InvoicePanel({ doc, onClose, onScheduleCreated }: Props) {
       {sendNowOpen && (
         <SendNowModal
           doc={doc}
+          clientId={clientId}
           onClose={() => setSendNowOpen(false)}
           onSent={() => {}}
         />

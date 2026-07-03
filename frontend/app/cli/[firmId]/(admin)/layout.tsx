@@ -97,7 +97,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (syncing) return;
     setSyncing(true);
     try {
-      await apiFetch(API.documents.sync(), { method: 'POST' });
+      const onecClientIds = useClientStore.getState().clients
+        .filter((c) => c.activeChannels.includes('1C'))
+        .map((c) => c.id);
+      await Promise.all(onecClientIds.map((id) => apiFetch(API.documents.sync(id), { method: 'POST' })));
     } catch {
       // SyncStatusBar surfaces detailed sync status/errors at the bottom of the page.
     } finally {

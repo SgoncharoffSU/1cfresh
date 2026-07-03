@@ -48,8 +48,6 @@ export const REAL_CLIENTS: ClientContact[] = [
 
 let _seq = 0;
 
-interface ApiCounterparty { id: string; name: string; inn: string }
-
 interface ClientState {
   clients:    ClientContact[];
   selectedId: string | null;
@@ -57,11 +55,14 @@ interface ClientState {
   setClients:      (c: ClientContact[]) => void;
   select:          (id: string | null) => void;
   addClient:       (c: Omit<ClientContact, 'id' | 'color'>) => string;
+  /** Insert a client the server already created (e.g. via POST /clients/onec-connect) — no extra API call. */
+  addClientRaw:    (c: ClientContact) => void;
+  /** Mark a channel connected in local state only — for when the server already persisted it. */
+  markChannelConnected: (clientId: string, ch: IntegrationKey, ref: string | number) => void;
   removeClient:    (id: string) => void;
   updateChannelId:       (clientId: string, ch: IntegrationKey, chId: string | number) => void;
   updatePortalCredentials:(clientId: string, login: string, password: string) => void;
   mergeClients:          (keepId: string, removeId: string) => void;
-  addFromApi:            (counterparties: ApiCounterparty[]) => void;
 }
 
 export const useClientStore = create<ClientState>()(
@@ -81,6 +82,26 @@ export const useClientStore = create<ClientState>()(
         set((s) => ({ clients: [...s.clients, full] }));
         syncToServer(() => apiFetch(API.clients.create(), { method: 'POST', body: JSON.stringify(full) }));
         return id;
+      },
+
+      addClientRaw: (c) => {
+        set((s) => (s.clients.some((existing) => existing.id === c.id)
+          ? s
+          : { clients: [...s.clients, c] }));
+      },
+
+      markChannelConnected: (clientId, ch, ref) => {
+        set((s) => ({
+          clients: s.clients.map((c) =>
+            c.id !== clientId ? c : {
+              ...c,
+              channelIds:     { ...c.channelIds, [ch]: ref },
+              activeChannels: c.activeChannels.includes(ch)
+                ? c.activeChannels
+                : [...c.activeChannels, ch],
+            }
+          ),
+        }));
       },
 
       removeClient: (id) => {
@@ -142,31 +163,6 @@ export const useClientStore = create<ClientState>()(
         }));
       },
 
-      addFromApi: (counterparties) => {
-        const s = get();
-        const existing = new Set(s.clients.map((c) => c.id));
-        const fresh = counterparties
-          .filter((cp) => !existing.has(cp.id) && cp.name)
-          .map((cp, i) => {
-            const words    = cp.name.trim().split(/\s+/);
-            const initials = words.map((w) => w[0]).join('').slice(0, 2).toUpperCase();
-            return {
-              id:             cp.id,
-              name:           cp.name,
-              shortName:      words.slice(0, 2).join(' '),
-              inn:            cp.inn || undefined,
-              initials,
-              color:          PALETTE[(s.clients.length + i) % PALETTE.length],
-              activeChannels: ['1C' as IntegrationKey],
-              channelIds:     { '1C': cp.id },
-            } satisfies ClientContact;
-          });
-        if (fresh.length === 0) return;
-        set((s2) => ({ clients: [...s2.clients, ...fresh] }));
-        for (const c of fresh) {
-          syncToServer(() => apiFetch(API.clients.create(), { method: 'POST', body: JSON.stringify(c) }));
-        }
-      },
     }),
     { name: 'client-store', version: 1 },
   ),

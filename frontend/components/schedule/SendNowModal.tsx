@@ -18,12 +18,13 @@ const CHANNELS: { id: DeliveryChannel; label: string; icon: React.ReactNode; ava
 ];
 
 interface Props {
-  doc:     ApiDocFull;
-  onClose: () => void;
-  onSent:  () => void;
+  doc:      ApiDocFull;
+  clientId: string;
+  onClose:  () => void;
+  onSent:   () => void;
 }
 
-export function SendNowModal({ doc, onClose, onSent }: Props) {
+export function SendNowModal({ doc, clientId, onClose, onSent }: Props) {
   const { clients } = useClientStore();
 
   const linkedTgClient = useMemo(() =>
@@ -68,7 +69,7 @@ export function SendNowModal({ doc, onClose, onSent }: Props) {
     setSending(true);
     setError('');
     try {
-      const res = await fetch(API.documents.sendNow(doc.id), {
+      const res = await fetch(API.documents.sendNow(clientId, doc.id), {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({

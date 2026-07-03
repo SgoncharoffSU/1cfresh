@@ -42,6 +42,7 @@ type DeliveryChannel = 'none' | 'TG' | 'EMAIL' | 'INTERNAL' | 'EDO';
 
 interface Props {
   doc:      ApiDocFull;
+  clientId: string;
   existing: DocSchedule | null;
   onClose:  () => void;
   onSaved:  (s: DocSchedule) => void;
@@ -64,7 +65,7 @@ const CHANNELS: { id: DeliveryChannel; label: string; icon: React.ReactNode; ava
 
 const WD_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
-export function ScheduleModal({ doc, existing, onClose, onSaved }: Props) {
+export function ScheduleModal({ doc, clientId, existing, onClose, onSaved }: Props) {
   const { clients } = useClientStore();
 
   // Find client linked to this counterparty that has TG channel
@@ -186,7 +187,7 @@ export function ScheduleModal({ doc, existing, onClose, onSaved }: Props) {
         delivery_address:  resolvedAddress,
         message:           message.trim() || null,
       };
-      const url    = existing ? API.docSchedules.update(existing.id) : API.docSchedules.create();
+      const url    = existing ? API.docSchedules.update(clientId, existing.id) : API.docSchedules.create(clientId);
       const method = existing ? 'PUT' : 'POST';
       const res    = await fetch(url, {
         method,

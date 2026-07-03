@@ -4,10 +4,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { API, apiFetch } from '@/lib/api';
+import { useClientStore } from '@/store/useClientStore';
 
 type SyncState = 'idle' | 'syncing' | 'ok' | 'error';
 
 export function SyncStatusBar() {
+  const clients = useClientStore((s) => s.clients);
+  const onecClientIds = clients.filter((c) => c.activeChannels.includes('1C')).map((c) => c.id);
+
   const [lastSync,   setLastSync]   = useState<Date | null>(null);
   const [syncState,  setSyncState]  = useState<SyncState>('idle');
   const [result,     setResult]     = useState('');
@@ -20,41 +24,42 @@ export function SyncStatusBar() {
   }, []);
 
   const fetchLastSync = useCallback(async () => {
+    if (onecClientIds.length === 0) return;
     try {
-      const res = await apiFetch(API.documents.list());
-      if (!res.ok) return;
-      const docs: { synced_at: string }[] = await res.json();
-      if (docs.length > 0) {
-        const maxTs = docs.reduce(
-          (m, d) => (d.synced_at > m ? d.synced_at : m),
-          docs[0].synced_at,
-        );
+      const results = await Promise.all(
+        onecClientIds.map((id) => apiFetch(API.documents.list(id)).then((r) => r.ok ? r.json() : [])),
+      );
+      const allDocs: { synced_at: string }[] = results.flat();
+      if (allDocs.length > 0) {
+        const maxTs = allDocs.reduce((m, d) => (d.synced_at > m ? d.synced_at : m), allDocs[0].synced_at);
         setLastSync(new Date(maxTs));
       }
     } catch {}
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onecClientIds.join(',')]);
 
   useEffect(() => { fetchLastSync(); }, [fetchLastSync]);
 
   const handleSync = useCallback(async () => {
-    if (syncState === 'syncing') return;
+    if (syncState === 'syncing' || onecClientIds.length === 0) return;
     setSyncState('syncing');
     setResult('');
     try {
-      const res = await apiFetch(API.documents.sync(), { method: 'POST' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const inv  = data.invoices ?? 0;
-      const sal  = data.sales   ?? 0;
-      setResult(`+${inv + sal} документов`);
+      const results = await Promise.all(
+        onecClientIds.map((id) =>
+          apiFetch(API.documents.sync(id), { method: 'POST' }).then((r) => r.ok ? r.json() : { invoices: 0, sales: 0 })
+        ),
+      );
+      const total = results.reduce((sum, d) => sum + (d.invoices ?? 0) + (d.sales ?? 0), 0);
+      setResult(`+${total} документов · ${onecClientIds.length} клиентов`);
       setSyncState('ok');
       setLastSync(new Date());
-    } catch (e) {
+    } catch {
       setResult('Ошибка синхронизации');
       setSyncState('error');
     }
     setTimeout(() => setSyncState('idle'), 5000);
-  }, [syncState]);
+  }, [syncState, onecClientIds]);
 
   // Next auto-sync countdown
   const nextSync  = lastSync ? new Date(lastSync.getTime() + 10 * 60 * 1000) : null;
@@ -91,9 +96,11 @@ export function SyncStatusBar() {
         )}
         {syncState === 'idle' && (
           <span>
-            {lastSync
-              ? `1С · обновлено ${lastSync.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
-              : '1С · нет данных'}
+            {onecClientIds.length === 0
+              ? '1С · нет подключённых клиентов'
+              : lastSync
+                ? `1С · обновлено ${lastSync.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} · ${onecClientIds.length} клиентов`
+                : '1С · нет данных'}
             {minsLeft > 0 && (
               <span className="text-slate-600 ml-2">· авто через {minsLeft} мин</span>
             )}
@@ -104,8 +111,8 @@ export function SyncStatusBar() {
       {/* Right: sync button */}
       <button
         onClick={handleSync}
-        disabled={syncState === 'syncing'}
-        title="Синхронизировать сейчас"
+        disabled={syncState === 'syncing' || onecClientIds.length === 0}
+        title="Синхронизировать все подключённые 1С"
         className="flex items-center gap-1 hover:text-slate-200 disabled:opacity-40 transition-colors flex-shrink-0"
       >
         <RefreshCw className={cn('h-3 w-3', syncState === 'syncing' && 'animate-spin')} />

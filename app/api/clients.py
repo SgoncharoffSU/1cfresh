@@ -1,20 +1,30 @@
 """Client contacts and channel bindings — shared across devices for one tenant."""
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_tenant
+from app.api.auth import get_current_tenant, get_current_user
 from app.db.database import get_db
 from app.models.chat_message import ChatMessage
 from app.models.client_channel import ClientChannel
 from app.models.client_contact import ClientContact
+from app.models.firm import User
+from app.models.tenant import Tenant
 from app.services.abonent_service import next_abonent_number
 from app.services.auth_service import hash_password
 
 router = APIRouter(prefix="/clients", tags=["clients"])
+
+_DEFAULT_CLIENT_COLOR = "bg-blue-100 text-blue-700"
+
+
+def _initials_from_name(name: str) -> str:
+    words = name.strip().split()
+    return "".join(w[0] for w in words[:2]).upper() or "??"
 
 
 # ─── Payloads ──────────────────────────────────────────────────────────────────
@@ -44,6 +54,24 @@ class PortalCredentialsIn(BaseModel):
 class MergeIn(BaseModel):
     keepId:   str
     removeId: str
+
+
+class OnecConnectIn(BaseModel):
+    client_id:      Optional[str] = None   # None → create a new client along with the connection
+    name:           Optional[str] = None   # required when client_id is None
+    shortName:      Optional[str] = None
+    inn:            Optional[str] = None
+    initials:       Optional[str] = None
+    color:          Optional[str] = None
+    odata_url:      str
+    odata_login:    str
+    odata_password: str
+
+
+class OnecConnectOut(BaseModel):
+    ok:        bool
+    client_id: str
+    connected: bool
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -115,6 +143,92 @@ async def create_client(
 
     await db.commit()
     return {"ok": True, "id": client.id}
+
+
+@router.post("/onec-connect", response_model=OnecConnectOut)
+async def connect_onec(
+    data: OnecConnectIn,
+    tenant_id: int = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Attach a client's own 1C:Fresh OData connection — creating the client first when
+    client_id is omitted. Each client now has their own 1C base, so this is the normal
+    way most clients get added (see IntegrationsTab's "1С" row for the reconnect path)."""
+    if data.client_id:
+        client = await db.get(ClientContact, data.client_id)
+        if not client or client.tenant_id != tenant_id:
+            raise HTTPException(status_code=404, detail="Client not found")
+    else:
+        name = (data.name or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Укажите название клиента")
+        abonent_number = await next_abonent_number(db, tenant_id)
+        client = ClientContact(
+            id             = str(uuid4()),
+            tenant_id      = tenant_id,
+            abonent_number = abonent_number,
+            name           = name,
+            short_name     = (data.shortName or name)[:200],
+            inn            = data.inn,
+            initials       = data.initials or _initials_from_name(name),
+            color          = data.color or _DEFAULT_CLIENT_COLOR,
+        )
+        db.add(client)
+        await db.flush()
+
+    # Test the connection before saving (same pattern as PUT /auth/tenant).
+    connected = False
+    try:
+        from app.services.onec_odata import OneCODataClient
+        odata = OneCODataClient(
+            login    = data.odata_login,
+            password = data.odata_password,
+            base_url = data.odata_url,
+        )
+        odata.ping()
+        connected = True
+    except Exception:
+        pass
+
+    res = await db.execute(select(Tenant).where(Tenant.client_contact_id == client.id))
+    onec_tenant = res.scalar_one_or_none()
+    if onec_tenant is None:
+        onec_tenant = Tenant(
+            firm_id            = user.firm_id,
+            client_contact_id  = client.id,
+            name               = client.name,
+            odata_url          = data.odata_url,
+            odata_login        = data.odata_login,
+            odata_password     = data.odata_password,
+            is_active          = connected,
+        )
+        db.add(onec_tenant)
+    else:
+        onec_tenant.odata_url      = data.odata_url
+        onec_tenant.odata_login    = data.odata_login
+        onec_tenant.odata_password = data.odata_password
+        onec_tenant.is_active      = connected
+
+    await db.flush()
+
+    # Tag the "1C" channel so the existing activeChannels/channelIds badge logic in
+    # ClientsList/IntegrationsTab picks this up with no frontend response-shape change.
+    ch_res = await db.execute(
+        select(ClientChannel).where(
+            ClientChannel.tenant_id == tenant_id,
+            ClientChannel.client_id == client.id,
+            ClientChannel.channel   == "1C",
+        )
+    )
+    channel = ch_res.scalar_one_or_none()
+    if channel:
+        channel.channel_ref = str(onec_tenant.id)
+    else:
+        db.add(ClientChannel(tenant_id=tenant_id, client_id=client.id, channel="1C", channel_ref=str(onec_tenant.id)))
+
+    await db.commit()
+    return OnecConnectOut(ok=True, client_id=client.id, connected=connected)
 
 
 @router.delete("/{client_id}")

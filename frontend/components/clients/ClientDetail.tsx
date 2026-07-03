@@ -22,6 +22,7 @@ import { AiChatIcon }     from '@/components/icons/AiChatIcon';
 import { ChatMessage, IntegrationKey } from '@/types';
 import { API, apiFetch } from '@/lib/api';
 import ContractsTab      from '@/components/clients/ContractsTab';
+import { ConnectOnecModal } from '@/components/clients/ConnectOnecModal';
 import { cn, formatTime, formatDate } from '@/lib/utils';
 
 // ─── Channel badge ─────────────────────────────────────────────────────────────
@@ -150,11 +151,11 @@ const WEEK_NAMES = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
 
 function DocSchedulePanel({
   doc,
-  counterpartyKey,
+  clientId,
   onClose,
 }: {
   doc: ApiDocFull;
-  counterpartyKey: string;
+  clientId: string;
   onClose: () => void;
 }) {
   const [freq,    setFreq]    = useState<'weekly'|'monthly'|'quarterly'|'minutes'>('monthly');
@@ -171,7 +172,7 @@ function DocSchedulePanel({
 
   useEffect(() => {
     // load existing schedule if any
-    apiFetch(API.contracts.listSchedules(doc.id))
+    apiFetch(API.contracts.listSchedules(clientId, doc.id))
       .then(r => r.ok ? r.json() : [])
       .then((schedules: any[]) => {
         const s = schedules.find((x: any) => x.doc_type_target === target);
@@ -184,7 +185,7 @@ function DocSchedulePanel({
         }
       })
       .catch(() => {});
-  }, [doc.id, target]);
+  }, [clientId, doc.id, target]);
 
   async function save() {
     setSaving(true);
@@ -203,7 +204,7 @@ function DocSchedulePanel({
         doc_type_target: target,
       };
       if (freq === 'weekly' || freq === 'minutes') body.week_day = weekDay;
-      const r = await apiFetch(API.contracts.upsertSchedule(doc.id, target, basisType), {
+      const r = await apiFetch(API.contracts.upsertSchedule(clientId, doc.id, target, basisType), {
         method: 'POST', body: JSON.stringify(body),
       });
       if (!r.ok) throw new Error(await r.text());
@@ -216,7 +217,7 @@ function DocSchedulePanel({
 
   async function del() {
     if (!confirm('Удалить расписание?')) return;
-    await apiFetch(API.contracts.deleteSchedule(doc.id, target), { method: 'DELETE' });
+    await apiFetch(API.contracts.deleteSchedule(clientId, doc.id, target), { method: 'DELETE' });
     onClose();
   }
 
@@ -317,7 +318,7 @@ function DocSchedulePanel({
 const POLL_INTERVAL = 30_000; // 30 sec background refresh
 
 // ─── Documents tab ─────────────────────────────────────────────────────────────
-function DocsTab({ clientId }: { clientId: string }) {  // clientId == counterparty Ref_Key
+function DocsTab({ clientId }: { clientId: string }) {
   const [docs,        setDocs]        = useState<ApiDocFull[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [selected,    setSelected]    = useState<ApiDocFull | null>(null);
@@ -329,14 +330,16 @@ function DocsTab({ clientId }: { clientId: string }) {  // clientId == counterpa
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const res = await apiFetch(API.documents.list());
+      // Server already scopes documents to this client's own 1C connection —
+      // no more client-side counterparty filtering needed (each client has
+      // their own 1C base now, so every returned doc is inherently theirs).
+      const res = await apiFetch(API.documents.list(clientId));
       if (res.ok) {
         const all: ApiDocFull[] = await res.json();
-        const filtered = all.filter((d) => d.counterparty.id === clientId);
         if (silent) {
           setDocs(prev => {
             const prevIds = new Set(prev.map(d => d.id));
-            const fresh = filtered.filter(d => !prevIds.has(d.id));
+            const fresh = all.filter(d => !prevIds.has(d.id));
             if (fresh.length > 0) {
               setNewIds(ids => new Set(Array.from(ids).concat(fresh.map(d => d.id))));
               setTimeout(() => setNewIds(ids => {
@@ -345,10 +348,10 @@ function DocsTab({ clientId }: { clientId: string }) {  // clientId == counterpa
                 return next;
               }), 2500);
             }
-            return filtered;
+            return all;
           });
         } else {
-          setDocs(filtered);
+          setDocs(all);
         }
         setLastUpdated(new Date());
       }
@@ -399,7 +402,7 @@ function DocsTab({ clientId }: { clientId: string }) {  // clientId == counterpa
 
       {subTab === 'contracts' ? (
         <div className="flex-1 overflow-auto p-4">
-          <ContractsTab counterpartyKey={clientId} />
+          <ContractsTab clientId={clientId} />
         </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-2 text-xs text-muted-foreground">
@@ -489,7 +492,7 @@ function DocsTab({ clientId }: { clientId: string }) {  // clientId == counterpa
                       <td colSpan={5} className="px-4 py-2">
                         <DocSchedulePanel
                           doc={doc}
-                          counterpartyKey={clientId}
+                          clientId={clientId}
                           onClose={() => setScheduling(null)}
                         />
                       </td>
@@ -517,7 +520,7 @@ function DocsTab({ clientId }: { clientId: string }) {  // clientId == counterpa
         </>
       )}
 
-      <InvoicePanel doc={selected} onClose={() => setSelected(null)} />
+      <InvoicePanel doc={selected} clientId={clientId} onClose={() => setSelected(null)} />
     </div>
   );
 }
@@ -541,7 +544,7 @@ function SchedulesTab({ clientId }: { clientId: string }) {
   useEffect(() => { load(); }, [load]);
 
   async function handleToggle(id: number) {
-    const res = await fetch(API.docSchedules.toggle(id), { method: 'PATCH' });
+    const res = await fetch(API.docSchedules.toggle(clientId, id), { method: 'PATCH' });
     if (res.ok) {
       const updated: DocSchedule = await res.json();
       setSchedules((prev) => prev.map((s) => s.id === id ? updated : s));
@@ -550,7 +553,7 @@ function SchedulesTab({ clientId }: { clientId: string }) {
 
   async function handleDelete(id: number) {
     if (!confirm('Удалить расписание?')) return;
-    await fetch(API.docSchedules.delete(id), { method: 'DELETE' });
+    await fetch(API.docSchedules.delete(clientId, id), { method: 'DELETE' });
     setSchedules((prev) => prev.filter((s) => s.id !== id));
   }
 
@@ -684,6 +687,7 @@ function SchedulesTab({ clientId }: { clientId: string }) {
       {editing && editDoc && (
         <ScheduleModal
           doc={editDoc}
+          clientId={clientId}
           existing={editing}
           onClose={() => { setEditing(null); setEditDoc(null); }}
           onSaved={(updated) => {
@@ -707,7 +711,10 @@ const INT_LIST: { key: IntegrationKey; label: string; desc: string }[] = [
   { key:'MOYSKLAD',      label:'МойСклад',       desc:'Управление товарами и остатками' },
 ];
 
-function IntegrationsTab({ activeChannels }: { activeChannels: IntegrationKey[] }) {
+function IntegrationsTab({ clientId, clientName, activeChannels }: { clientId: string; clientName: string; activeChannels: IntegrationKey[] }) {
+  const { markChannelConnected } = useClientStore();
+  const [connecting1c, setConnecting1c] = useState(false);
+
   return (
     <div className="p-4 space-y-2 overflow-y-auto h-full">
       {INT_LIST.map(({ key, label, desc }) => {
@@ -727,16 +734,27 @@ function IntegrationsTab({ activeChannels }: { activeChannels: IntegrationKey[] 
               <span className={cn('text-xs', connected ? 'text-emerald-700 font-medium' : 'text-slate-400')}>
                 {connected ? 'Подключён' : 'Не подключён'}
               </span>
-              {!connected && (
-                <Button size="sm" variant="outline" className="h-7 text-xs px-2 ml-1">Подключить</Button>
+              {key === '1C' && !connected && (
+                <Button size="sm" variant="outline" className="h-7 text-xs px-2 ml-1" onClick={() => setConnecting1c(true)}>Подключить</Button>
               )}
-              {connected && (
-                <Button size="sm" variant="ghost" className="h-7 text-xs px-2 ml-1 text-slate-500">Настроить</Button>
+              {key === '1C' && connected && (
+                <Button size="sm" variant="ghost" className="h-7 text-xs px-2 ml-1 text-slate-500" onClick={() => setConnecting1c(true)}>Настроить</Button>
               )}
             </div>
           </div>
         );
       })}
+
+      {connecting1c && (
+        <ConnectOnecModal
+          clientId={clientId}
+          initialName={clientName}
+          onClose={() => setConnecting1c(false)}
+          onConnected={(result) => {
+            if (result.connected) markChannelConnected(clientId, '1C', result.client_id);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -951,7 +969,7 @@ export function ClientDetail({ clientId }: { clientId: string }) {
         {activeTab === 'tasks'        && <TasksTab clientId={clientId} />}
         {activeTab === 'docs'         && <DocsTab clientId={clientId} />}
         {activeTab === 'schedules'    && <SchedulesTab clientId={clientId} />}
-        {activeTab === 'integrations' && <IntegrationsTab activeChannels={client.activeChannels} />}
+        {activeTab === 'integrations' && <IntegrationsTab clientId={clientId} clientName={client.name} activeChannels={client.activeChannels} />}
         {activeTab === 'portal'       && <PortalTab clientId={clientId} />}
       </div>
     </div>

@@ -18,6 +18,7 @@ from app.api.contracts import router as contracts_router
 from app.api.billing import router as billing_router
 from app.api.superadmin import router as superadmin_router
 from app.api.employees import router as employees_router
+from app.api.act_forms import router as act_forms_router
 from app.routers.telegram import router as telegram_router
 from app.db.database import Base, engine
 import app.models.firm               # noqa: F401
@@ -34,6 +35,7 @@ import app.models.superadmin         # noqa: F401
 import app.models.impersonation_log  # noqa: F401
 import app.models.abonent_counter    # noqa: F401
 import app.models.activity_log       # noqa: F401
+import app.models.act_profile        # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +92,7 @@ app.include_router(contracts_router,     prefix="/api/v1")
 app.include_router(billing_router,       prefix="/api/v1")
 app.include_router(superadmin_router,    prefix="/api/v1")
 app.include_router(employees_router,     prefix="/api/v1")
+app.include_router(act_forms_router,     prefix="/api/v1")
 
 
 @app.get("/health")

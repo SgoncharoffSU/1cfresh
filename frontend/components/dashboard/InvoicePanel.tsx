@@ -6,6 +6,7 @@ import { API } from '@/lib/api';
 import { cn, formatCurrency } from '@/lib/utils';
 import { ScheduleModal, DocSchedule } from '@/components/schedule/ScheduleModal';
 import { SendNowModal } from '@/components/schedule/SendNowModal';
+import { ActPrintModal } from '@/components/schedule/ActPrintModal';
 import { TelegramIcon } from '@/components/icons/TelegramIcon';
 
 export interface ApiDocItem {
@@ -60,6 +61,7 @@ const VAT_LABEL: Record<string, string> = {
 export function InvoicePanel({ doc, clientId, onClose, onScheduleCreated }: Props) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [sendNowOpen,  setSendNowOpen]  = useState(false);
+  const [actPrintKind, setActPrintKind] = useState<'ks2' | 'ks3' | null>(null);
   if (!doc) return null;
 
   const docDate  = doc.date ? new Date(doc.date) : null;
@@ -264,8 +266,40 @@ export function InvoicePanel({ doc, clientId, onClose, onScheduleCreated }: Prop
               Расписание
             </button>
           </div>
+          {doc.type === 'SALE' && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => setActPrintKind('ks2')}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
+                           border border-slate-200 bg-white text-slate-700 text-sm font-medium
+                           hover:bg-slate-50 hover:border-slate-300 transition-colors"
+              >
+                <Printer className="h-4 w-4" />
+                КС-2
+              </button>
+              <button
+                onClick={() => setActPrintKind('ks3')}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
+                           border border-slate-200 bg-white text-slate-700 text-sm font-medium
+                           hover:bg-slate-50 hover:border-slate-300 transition-colors"
+              >
+                <Printer className="h-4 w-4" />
+                КС-3
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
+      {actPrintKind && (
+        <ActPrintModal
+          clientId={clientId}
+          refKey={doc.id}
+          docNumber={doc.number}
+          kind={actPrintKind}
+          onClose={() => setActPrintKind(null)}
+        />
+      )}
 
       {scheduleOpen && (
         <ScheduleModal

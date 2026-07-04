@@ -142,6 +142,31 @@ export const API = {
     create:       () => `${BASE}/api/v1/employees/`,
     toggleActive: (id: number) => `${BASE}/api/v1/employees/${id}/toggle-active`,
   },
+  actForms: {
+    profile: (clientId: string) => `${BASE}/api/v1/act-forms/profile?client_id=${encodeURIComponent(clientId)}`,
+    ks2: (clientId: string, refKey: string, params: {
+      object?: string; contractNumber?: string; contractDate?: string; periodFrom?: string; periodTo?: string;
+    } = {}) => {
+      const qs = new URLSearchParams({ client_id: clientId });
+      if (params.object)         qs.set('object', params.object);
+      if (params.contractNumber) qs.set('contract_number', params.contractNumber);
+      if (params.contractDate)   qs.set('contract_date', params.contractDate);
+      if (params.periodFrom)     qs.set('period_from', params.periodFrom);
+      if (params.periodTo)       qs.set('period_to', params.periodTo);
+      return `${BASE}/api/v1/act-forms/${encodeURIComponent(refKey)}/ks2?${qs.toString()}`;
+    },
+    ks3: (clientId: string, refKey: string, params: {
+      object?: string; contractNumber?: string; contractDate?: string; periodFrom?: string; periodTo?: string;
+    } = {}) => {
+      const qs = new URLSearchParams({ client_id: clientId });
+      if (params.object)         qs.set('object', params.object);
+      if (params.contractNumber) qs.set('contract_number', params.contractNumber);
+      if (params.contractDate)   qs.set('contract_date', params.contractDate);
+      if (params.periodFrom)     qs.set('period_from', params.periodFrom);
+      if (params.periodTo)       qs.set('period_to', params.periodTo);
+      return `${BASE}/api/v1/act-forms/${encodeURIComponent(refKey)}/ks3?${qs.toString()}`;
+    },
+  },
   docSchedules: {
     list:   (clientId: string, counterpartyKey?: string) => {
       let u = `${BASE}/api/v1/doc-schedules/?client_id=${encodeURIComponent(clientId)}`;

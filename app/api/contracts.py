@@ -12,13 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Depends
 
 from app.db.database import get_db
+from app.api.auth import get_current_user
 from app.api.deps import get_client_tenant
 from app.models.contract_schedule import ContractSchedule
+from app.models.firm import User
 from app.models.tenant import OneCDocument, Tenant
 from app.schemas.contract_schedule import (
     ContractOut, ContractScheduleCreate, ContractScheduleOut, ContractScheduleUpdate,
     ScheduleItem,
 )
+from app.services.activity_log import log_activity
 from app.services.contract_schedule_service import compute_contract_next_run
 
 logger = logging.getLogger(__name__)
@@ -256,6 +259,7 @@ async def upsert_schedule(
     ref_key:   str,
     body:      ContractScheduleCreate,
     tenant_id: int = Depends(get_client_tenant),
+    user:      User = Depends(get_current_user),
     target:    str = Query("all"),        # all | INVOICE | SALE | FACTURA
     basis:     str = Query("CONTRACT"),   # CONTRACT | INVOICE | SALE | FACTURA
     db: AsyncSession = Depends(get_db),
@@ -310,6 +314,10 @@ async def upsert_schedule(
     s.next_run              = next_run
     s.updated_at            = datetime.utcnow()
 
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="contract_schedule.upsert",
+                        description=f"Настроено расписание для документа {ref_key} ({target})",
+                        entity_type="contract_schedule", entity_id=ref_key)
     await db.commit()
     await db.refresh(s)
     return _schedule_out(s)
@@ -319,6 +327,7 @@ async def upsert_schedule(
 async def delete_schedule(
     ref_key:   str,
     tenant_id: int = Depends(get_client_tenant),
+    user:      User = Depends(get_current_user),
     target:    str = Query("all"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -332,6 +341,10 @@ async def delete_schedule(
     s = sr.scalar_one_or_none()
     if s:
         await db.delete(s)
+        await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                            firm_id=user.firm_id, action="contract_schedule.delete",
+                            description=f"Удалено расписание для документа {ref_key} ({target})",
+                            entity_type="contract_schedule", entity_id=ref_key)
         await db.commit()
 
 
@@ -354,10 +367,16 @@ async def list_schedules(
 @router.post("/sync", status_code=202)
 async def sync_contracts(
     tenant_id: int = Depends(get_client_tenant),
+    user:      User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     from app.tasks.sync_tasks import sync_one_tenant
     sync_one_tenant.delay(tenant_id)
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="contract.sync",
+                        description=f"Запущена синхронизация договоров (тенант {tenant_id})",
+                        entity_type="tenant", entity_id=tenant_id)
+    await db.commit()
     return {"status": "queued", "tenant_id": tenant_id}
 
 
@@ -365,6 +384,7 @@ async def sync_contracts(
 async def update_custom_fields(
     ref_key:      str,
     tenant_id:    int = Depends(get_client_tenant),
+    user:         User = Depends(get_current_user),
     target:       str = Query("all"),
     custom_fields: List[str] = [],
     db: AsyncSession = Depends(get_db),
@@ -380,6 +400,10 @@ async def update_custom_fields(
     if not s:
         raise HTTPException(404, "Расписание не найдено")
     s.custom_fields = json.dumps(custom_fields)
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="contract_schedule.update_custom_fields",
+                        description=f"Обновлены доп. поля расписания {ref_key} ({target})",
+                        entity_type="contract_schedule", entity_id=ref_key)
     await db.commit()
     await db.refresh(s)
     return _schedule_out(s)

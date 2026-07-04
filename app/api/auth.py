@@ -13,6 +13,7 @@ from app.models.tenant import Tenant
 from app.schemas.auth import (
     LoginIn, RegisterIn, TenantSetupIn, TenantSetupOut, TokenOut, UserOut,
 )
+from app.services.activity_log import log_activity
 from app.services.auth_service import create_token, decode_token, hash_password, verify_password
 
 router  = APIRouter(prefix="/auth", tags=["auth"])
@@ -114,6 +115,10 @@ async def register(data: RegisterIn, db: AsyncSession = Depends(get_db)):
     db.add(tenant)
     await db.flush()
 
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=firm.id, action="auth.register",
+                        description=f"Зарегистрирована фирма «{firm.name}», создан пользователь {user.email}",
+                        entity_type="firm", entity_id=firm.id)
     await db.commit()
 
     token = create_token({"sub": user.id, "firm_id": firm.id, "role": user.role, "typ": "admin"})
@@ -141,6 +146,10 @@ async def login(data: LoginIn, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Неверный логин или пароль")
 
     tenant_id = await _first_tenant_id(db, user.firm_id)
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="auth.login",
+                        description=f"Вход в систему: {user.email}")
+    await db.commit()
     token = create_token({"sub": user.id, "firm_id": user.firm_id, "role": user.role, "typ": "admin"})
     return TokenOut(
         access_token = token,
@@ -217,6 +226,11 @@ async def setup_tenant(
         tenant.odata_password = data.odata_password
         tenant.is_active      = connected
 
+    await db.flush()
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="tenant.setup",
+                        description=f"Настроено подключение 1С «{tenant.name}» ({data.odata_url}) — {'успешно' if connected else 'ошибка соединения'}",
+                        entity_type="tenant", entity_id=tenant.id)
     await db.commit()
     await db.refresh(tenant)
     return TenantSetupOut(

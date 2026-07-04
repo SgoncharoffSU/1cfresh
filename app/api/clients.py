@@ -15,6 +15,7 @@ from app.models.client_contact import ClientContact
 from app.models.firm import User
 from app.models.tenant import Tenant
 from app.services.abonent_service import next_abonent_number
+from app.services.activity_log import log_activity
 from app.services.auth_service import hash_password
 
 router = APIRouter(prefix="/clients", tags=["clients"])
@@ -114,6 +115,7 @@ async def list_clients(
 async def create_client(
     data: ClientIn,
     tenant_id: int = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Idempotent by id — frontend already generated id/color locally."""
@@ -141,6 +143,10 @@ async def create_client(
     for ch, ref in data.channelIds.items():
         db.add(ClientChannel(tenant_id=tenant_id, client_id=client.id, channel=ch, channel_ref=str(ref)))
 
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="client.create",
+                        description=f"Добавлен клиент «{client.name}»",
+                        entity_type="client", entity_id=client.id)
     await db.commit()
     return {"ok": True, "id": client.id}
 
@@ -227,6 +233,10 @@ async def connect_onec(
     else:
         db.add(ClientChannel(tenant_id=tenant_id, client_id=client.id, channel="1C", channel_ref=str(onec_tenant.id)))
 
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="client.connect_onec",
+                        description=f"Подключена 1С для клиента «{client.name}» ({'успешно' if connected else 'ошибка соединения'})",
+                        entity_type="client", entity_id=client.id)
     await db.commit()
     return OnecConnectOut(ok=True, client_id=client.id, connected=connected)
 
@@ -235,12 +245,18 @@ async def connect_onec(
 async def delete_client(
     client_id: str,
     tenant_id: int = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     client = await db.get(ClientContact, client_id)
     if not client or client.tenant_id != tenant_id:
         raise HTTPException(status_code=404, detail="Client not found")
+    name = client.name
     await db.delete(client)  # client_channels cascade; chat_messages.client_id -> NULL
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="client.delete",
+                        description=f"Удалён клиент «{name}»",
+                        entity_type="client", entity_id=client_id)
     await db.commit()
     return {"ok": True}
 
@@ -251,6 +267,7 @@ async def set_channel(
     channel:   str,
     data: ChannelIn,
     tenant_id: int = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     client = await db.get(ClientContact, client_id)
@@ -269,6 +286,10 @@ async def set_channel(
         row.channel_ref = data.channelRef
     else:
         db.add(ClientChannel(tenant_id=tenant_id, client_id=client_id, channel=channel, channel_ref=data.channelRef))
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="client.set_channel",
+                        description=f"Обновлён канал «{channel}» для клиента «{client.name}»",
+                        entity_type="client", entity_id=client_id)
     await db.commit()
     return {"ok": True}
 
@@ -278,6 +299,7 @@ async def set_portal_credentials(
     client_id: str,
     data: PortalCredentialsIn,
     tenant_id: int = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     client = await db.get(ClientContact, client_id)
@@ -285,6 +307,10 @@ async def set_portal_credentials(
         raise HTTPException(status_code=404, detail="Client not found")
     client.portal_login         = data.login
     client.portal_password_hash = hash_password(data.password)
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="client.set_portal_credentials",
+                        description=f"Обновлены учётные данные портала для клиента «{client.name}» (логин: {data.login})",
+                        entity_type="client", entity_id=client_id)
     await db.commit()
     return {"ok": True}
 
@@ -293,6 +319,7 @@ async def set_portal_credentials(
 async def merge_clients(
     data: MergeIn,
     tenant_id: int = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Move channel bindings and messages from removeId onto keepId, then drop removeId."""
@@ -327,6 +354,11 @@ async def merge_clients(
         else:
             ch.client_id = data.keepId
 
+    keep_name, remove_name = keep.name, remove.name
     await db.delete(remove)
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="client.merge",
+                        description=f"Объединены клиенты: «{remove_name}» → «{keep_name}»",
+                        entity_type="client", entity_id=data.keepId)
     await db.commit()
     return {"ok": True}

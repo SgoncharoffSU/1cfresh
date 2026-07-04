@@ -6,9 +6,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
+from app.api.auth import get_current_user
 from app.api.deps import get_client_tenant
+from app.models.firm import User
 from app.models.schedule import DocumentSchedule
 from app.schemas.doc_schedule import DocScheduleCreate, DocScheduleOut, DocScheduleUpdate
+from app.services.activity_log import log_activity
 from app.services.schedule_service import compute_next_run, describe_schedule
 
 router = APIRouter(prefix="/doc-schedules", tags=["doc-schedules"])
@@ -31,6 +34,7 @@ async def list_schedules(
 async def create_schedule(
     data: DocScheduleCreate,
     tenant_id: int = Depends(get_client_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     desc = data.description or describe_schedule(data.schedule_type, data.schedule_config)
@@ -53,6 +57,11 @@ async def create_schedule(
         error_count       = 0,
     )
     db.add(obj)
+    await db.flush()
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="doc_schedule.create",
+                        description=f"Создано расписание отправки документа {data.document_ref_key}",
+                        entity_type="doc_schedule", entity_id=obj.id)
     await db.commit()
     await db.refresh(obj)
     return obj
@@ -63,6 +72,7 @@ async def update_schedule(
     schedule_id: int,
     data: DocScheduleUpdate,
     tenant_id: int = Depends(get_client_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(DocumentSchedule).where(DocumentSchedule.id == schedule_id))
@@ -92,6 +102,10 @@ async def update_schedule(
     obj.error_count = 0
     obj.last_error  = None
 
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="doc_schedule.update",
+                        description=f"Обновлено расписание отправки документа {obj.document_ref_key}",
+                        entity_type="doc_schedule", entity_id=obj.id)
     await db.commit()
     await db.refresh(obj)
     return obj
@@ -101,6 +115,7 @@ async def update_schedule(
 async def toggle_schedule(
     schedule_id: int,
     tenant_id: int = Depends(get_client_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(DocumentSchedule).where(DocumentSchedule.id == schedule_id))
@@ -110,6 +125,10 @@ async def toggle_schedule(
     obj.is_active   = not obj.is_active
     obj.error_count = 0
     obj.last_error  = None
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="doc_schedule.toggle",
+                        description=f"Расписание {obj.document_ref_key} {'включено' if obj.is_active else 'выключено'}",
+                        entity_type="doc_schedule", entity_id=obj.id)
     await db.commit()
     await db.refresh(obj)
     return obj
@@ -119,13 +138,19 @@ async def toggle_schedule(
 async def delete_schedule(
     schedule_id: int,
     tenant_id: int = Depends(get_client_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(DocumentSchedule).where(DocumentSchedule.id == schedule_id))
     obj = result.scalar_one_or_none()
     if not obj or obj.tenant_id != tenant_id:
         raise HTTPException(status_code=404, detail="Schedule not found")
+    ref_key = obj.document_ref_key
     await db.delete(obj)
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="doc_schedule.delete",
+                        description=f"Удалено расписание отправки документа {ref_key}",
+                        entity_type="doc_schedule", entity_id=schedule_id)
     await db.commit()
 
 

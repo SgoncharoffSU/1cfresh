@@ -126,6 +126,21 @@ export const API = {
     firmDetail:  (firmId: number) => `${BASE}/api/v1/superadmin/firms/${firmId}`,
     impersonate: (firmId: number) => `${BASE}/api/v1/superadmin/firms/${firmId}/impersonate`,
     audit:       () => `${BASE}/api/v1/superadmin/audit`,
+    activity:    (params: { limit?: number; offset?: number; firmId?: number; actorType?: string; action?: string } = {}) => {
+      const qs = new URLSearchParams();
+      if (params.limit)     qs.set('limit',      String(params.limit));
+      if (params.offset)    qs.set('offset',     String(params.offset));
+      if (params.firmId)    qs.set('firm_id',    String(params.firmId));
+      if (params.actorType) qs.set('actor_type', params.actorType);
+      if (params.action)    qs.set('action',     params.action);
+      const q = qs.toString();
+      return `${BASE}/api/v1/superadmin/activity${q ? `?${q}` : ''}`;
+    },
+  },
+  employees: {
+    list:         () => `${BASE}/api/v1/employees/`,
+    create:       () => `${BASE}/api/v1/employees/`,
+    toggleActive: (id: number) => `${BASE}/api/v1/employees/${id}/toggle-active`,
   },
   docSchedules: {
     list:   (clientId: string, counterpartyKey?: string) => {

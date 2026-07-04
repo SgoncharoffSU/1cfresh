@@ -6,15 +6,19 @@ from datetime import datetime
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.config import settings
+from app.api.auth import get_current_user
 from app.db.database import AsyncSessionLocal
 from app.models.chat_message import ChatMessage
 from app.models.client_channel import ClientChannel
+from app.models.firm import User
 from app.models.telegram_state import TelegramPollState
+from app.models.tenant import Tenant
+from app.services.activity_log import log_activity
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/telegram", tags=["telegram"])
@@ -96,6 +100,11 @@ async def _store_message(update: dict) -> dict | None:
             tg_chat_id   = chat_id,
         )
         db.add(record)
+        firm_row = await db.execute(select(Tenant.firm_id).where(Tenant.id == TENANT_ID))
+        await log_activity(db, actor_type="system", firm_id=firm_row.scalar_one_or_none(),
+                            action="telegram.inbound",
+                            description=f"Входящее TG-сообщение от {record.sender_name}",
+                            entity_type="chat_message", entity_id=msg_id)
         await db.commit()
         logger.info("TG message stored: %s", msg_id)
         return _to_api_msg(record)
@@ -151,7 +160,7 @@ async def get_messages(limit: int = 50, since_id: str | None = None) -> dict:
 
 
 @router.post("/send")
-async def send_message(body: SendRequest) -> dict:
+async def send_message(body: SendRequest, user: User = Depends(get_current_user)) -> dict:
     """Send a message from the accountant back to the Telegram user."""
     token = getattr(settings, "TELEGRAM_BOT_TOKEN", "")
     if not token:
@@ -189,6 +198,10 @@ async def send_message(body: SendRequest) -> dict:
             is_read     = True,
             tg_chat_id  = chat_id,
         ))
+        await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                            firm_id=user.firm_id, action="telegram.send",
+                            description=f"Отправлено TG-сообщение в чат {chat_id}",
+                            entity_type="chat_message", entity_id=f"sent-{tg_msg_id}-{chat_id}")
         await db.commit()
 
     return {"ok": True, "message_id": tg_msg_id}

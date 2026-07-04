@@ -2,20 +2,24 @@
 from the admin (`users`) and abonent (`client_contacts`) identity spaces — see
 app/models/superadmin.py for why this is a separate table rather than a User role."""
 from datetime import datetime
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_superadmin
 from app.db.database import get_db
+from app.models.activity_log import ActivityLog
 from app.models.firm import Firm, User
 from app.models.impersonation_log import ImpersonationLog
 from app.models.superadmin import SuperAdmin
+from app.schemas.activity_log import ActivityLogListOut, ActivityLogOut
 from app.schemas.superadmin import (
     AuditLogOut, FirmDetailOut, FirmSummaryOut, FirmUserOut,
     ImpersonateIn, ImpersonateOut, SuperAdminLoginIn, SuperAdminTokenOut,
 )
+from app.services.activity_log import log_activity
 from app.services.auth_service import create_token, verify_password
 
 router = APIRouter(prefix="/superadmin", tags=["superadmin"])
@@ -33,6 +37,10 @@ async def superadmin_login(data: SuperAdminLoginIn, db: AsyncSession = Depends(g
         raise HTTPException(status_code=401, detail="Неверный логин или пароль")
 
     token = create_token({"sub": superadmin.id, "typ": "superadmin"})
+    await log_activity(db, actor_type="superadmin", actor_id=superadmin.id, actor_name=superadmin.name,
+                        action="superadmin.login",
+                        description=f"Вход супер-администратора {superadmin.email}")
+    await db.commit()
     return SuperAdminTokenOut(
         access_token  = token,
         superadmin_id = superadmin.id,
@@ -43,7 +51,7 @@ async def superadmin_login(data: SuperAdminLoginIn, db: AsyncSession = Depends(g
 
 @router.get("/firms", response_model=list[FirmSummaryOut])
 async def list_firms(
-    _: SuperAdmin = Depends(require_superadmin),
+    superadmin: SuperAdmin = Depends(require_superadmin),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -52,6 +60,10 @@ async def list_firms(
         .group_by(Firm.id)
         .order_by(Firm.created_at.desc())
     )
+    rows = result.all()
+    await log_activity(db, actor_type="superadmin", actor_id=superadmin.id, actor_name=superadmin.name,
+                        action="superadmin.view_firms", description="Просмотр списка фирм")
+    await db.commit()
     return [
         FirmSummaryOut(
             id                  = firm.id,
@@ -63,14 +75,14 @@ async def list_firms(
             user_count          = user_count,
             created_at          = firm.created_at,
         )
-        for firm, user_count in result.all()
+        for firm, user_count in rows
     ]
 
 
 @router.get("/firms/{firm_id}", response_model=FirmDetailOut)
 async def get_firm(
     firm_id: int,
-    _: SuperAdmin = Depends(require_superadmin),
+    superadmin: SuperAdmin = Depends(require_superadmin),
     db: AsyncSession = Depends(get_db),
 ):
     firm = await db.get(Firm, firm_id)
@@ -82,6 +94,12 @@ async def get_firm(
 
     users_res = await db.execute(select(User).where(User.firm_id == firm_id).order_by(User.created_at))
     users = users_res.scalars().all()
+
+    await log_activity(db, actor_type="superadmin", actor_id=superadmin.id, actor_name=superadmin.name,
+                        firm_id=firm_id, action="superadmin.view_firm",
+                        description=f"Просмотр карточки фирмы «{firm.name}»",
+                        entity_type="firm", entity_id=firm_id)
+    await db.commit()
 
     return FirmDetailOut(
         firm = FirmSummaryOut(
@@ -141,6 +159,10 @@ async def impersonate_firm(
         ip_address     = request.client.host if request.client else None,
         user_agent     = request.headers.get("user-agent"),
     ))
+    await log_activity(db, actor_type="superadmin", actor_id=superadmin.id, actor_name=superadmin.name,
+                        firm_id=firm_id, action="superadmin.impersonate",
+                        description=f"Вход в аккаунт фирмы «{firm.name}» под пользователем {target.name}",
+                        entity_type="user", entity_id=target.id, request=request)
     await db.commit()
 
     return ImpersonateOut(
@@ -175,3 +197,43 @@ async def audit_log(
         )
         for log, sa_name, firm_name, user_name in result.all()
     ]
+
+
+@router.get("/activity", response_model=ActivityLogListOut)
+async def list_activity(
+    limit:      int = Query(50, le=200),
+    offset:     int = Query(0, ge=0),
+    firm_id:    Optional[int] = Query(None),
+    actor_type: Optional[str] = Query(None),
+    action:     Optional[str] = Query(None),
+    date_from:  Optional[datetime] = Query(None),
+    date_to:    Optional[datetime] = Query(None),
+    _: SuperAdmin = Depends(require_superadmin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Unified activity feed — every logged action, from any actor tier."""
+    q = select(ActivityLog, Firm.name).outerjoin(Firm, Firm.id == ActivityLog.firm_id)
+    if firm_id is not None:
+        q = q.where(ActivityLog.firm_id == firm_id)
+    if actor_type:
+        q = q.where(ActivityLog.actor_type == actor_type)
+    if action:
+        q = q.where(ActivityLog.action == action)
+    if date_from:
+        q = q.where(ActivityLog.created_at >= date_from)
+    if date_to:
+        q = q.where(ActivityLog.created_at <= date_to)
+
+    total = (await db.execute(select(func.count()).select_from(q.order_by(None).subquery()))).scalar_one()
+    rows = await db.execute(q.order_by(ActivityLog.created_at.desc()).offset(offset).limit(limit))
+
+    items = [
+        ActivityLogOut(
+            id=a.id, created_at=a.created_at, actor_type=a.actor_type,
+            actor_id=a.actor_id, actor_name=a.actor_name, firm_id=a.firm_id,
+            firm_name=fname, action=a.action, description=a.description,
+            entity_type=a.entity_type, entity_id=a.entity_id,
+        )
+        for a, fname in rows.all()
+    ]
+    return ActivityLogListOut(items=items, total=total)

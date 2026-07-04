@@ -28,10 +28,15 @@ interface BillingStatus {
     extra_doc_price:   number;
     included_integrations:   number | null;
     extra_integration_price: number;
+    included_employees:      number | null;
+    extra_employee_price:    number;
   }>;
   integrations_used:        number;
   integrations_included:    number | null;
   extra_integration_price:  number;
+  employees_used:           number;
+  employees_included:       number | null;
+  extra_employee_price:     number;
   estimated_amount:         number;
 }
 
@@ -196,15 +201,30 @@ export default function BillingPage() {
                   max={billing.integrations_included}
                   label="Интеграций с 1С"
                 />
+                <UsageBar
+                  used={billing.employees_used}
+                  max={billing.employees_included}
+                  label="Сотрудников"
+                />
               </div>
 
-              {billing.integrations_included != null && billing.integrations_used > billing.integrations_included && (
-                <p className="mt-4 text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                  Подключено {billing.integrations_used} интеграций с 1С — {billing.integrations_used - billing.integrations_included} сверх лимита тарифа
-                  {' '}(+{(billing.integrations_used - billing.integrations_included) * billing.extra_integration_price} ₽/мес).
-                  {' '}К оплате: <span className="font-semibold">{billing.estimated_amount.toLocaleString('ru-RU')} ₽</span>
-                </p>
-              )}
+              {(() => {
+                const overageLines = [
+                  billing.integrations_included != null && billing.integrations_used > billing.integrations_included
+                    ? `${billing.integrations_used - billing.integrations_included} доп. интеграций 1С (+${(billing.integrations_used - billing.integrations_included) * billing.extra_integration_price} ₽/мес)`
+                    : null,
+                  billing.employees_included != null && billing.employees_used > billing.employees_included
+                    ? `${billing.employees_used - billing.employees_included} доп. сотрудников (+${(billing.employees_used - billing.employees_included) * billing.extra_employee_price} ₽/мес)`
+                    : null,
+                ].filter(Boolean) as string[];
+                if (overageLines.length === 0) return null;
+                return (
+                  <p className="mt-4 text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                    Сверх лимита тарифа: {overageLines.join(', ')}.
+                    {' '}К оплате: <span className="font-semibold">{billing.estimated_amount.toLocaleString('ru-RU')} ₽</span>
+                  </p>
+                );
+              })()}
             </div>
 
             {/* Plan selector */}
@@ -230,6 +250,10 @@ export default function BillingPage() {
                       ? Math.max(0, billing.integrations_used - plan.included_integrations)
                       : 0;
                     const overageCharge = planIntegrationOverage * plan.extra_integration_price;
+                    const planEmployeeOverage = plan.included_employees != null
+                      ? Math.max(0, billing.employees_used - plan.included_employees)
+                      : 0;
+                    const employeeOverageCharge = planEmployeeOverage * plan.extra_employee_price;
                     return (
                       <div key={key} className={`relative flex flex-col rounded-2xl border p-6 ${key === 'pro' ? 'bg-[#0f2444] border-[#1c3a5e]' : 'bg-white border-slate-100'}`}>
                         {key === 'pro' && (
@@ -237,11 +261,14 @@ export default function BillingPage() {
                         )}
                         <div className={`text-sm font-semibold mb-1 ${key === 'pro' ? 'text-blue-300' : 'text-slate-500'}`}>{plan.name}</div>
                         <div className={`mb-4 ${key === 'pro' ? 'text-white' : 'text-slate-900'}`}>
-                          <span className="text-3xl font-extrabold">{(price + overageCharge).toLocaleString('ru-RU')} ₽</span>
+                          <span className="text-3xl font-extrabold">{(price + overageCharge + employeeOverageCharge).toLocaleString('ru-RU')} ₽</span>
                           <span className={`text-sm ml-1 ${key === 'pro' ? 'text-white/40' : 'text-slate-400'}`}>/ {period === 'year' ? 'год' : 'месяц'}</span>
-                          {overageCharge > 0 && (
+                          {(overageCharge > 0 || employeeOverageCharge > 0) && (
                             <div className={`text-xs mt-0.5 ${key === 'pro' ? 'text-white/40' : 'text-slate-400'}`}>
-                              из них {overageCharge.toLocaleString('ru-RU')} ₽ за {planIntegrationOverage} доп. интеграций 1С
+                              {[
+                                overageCharge > 0 ? `${overageCharge.toLocaleString('ru-RU')} ₽ за ${planIntegrationOverage} доп. интеграций 1С` : null,
+                                employeeOverageCharge > 0 ? `${employeeOverageCharge.toLocaleString('ru-RU')} ₽ за ${planEmployeeOverage} доп. сотрудников` : null,
+                              ].filter(Boolean).join(' + из них ')}
                             </div>
                           )}
                         </div>
@@ -251,6 +278,7 @@ export default function BillingPage() {
                             plan.max_clients ? `До ${plan.max_clients} клиентов` : 'Неограниченно клиентов',
                             plan.max_docs_month ? `До ${plan.max_docs_month} документов/мес` : 'Безлимитные документы',
                             plan.included_integrations != null ? `До ${plan.included_integrations} интеграций с 1С` : 'Неограниченно интеграций с 1С',
+                            plan.included_employees != null ? `До ${plan.included_employees} сотрудников бесплатно` : 'Неограниченно сотрудников',
                             'Полный документооборот (счёт + реализация + СФ)',
                             'Telegram & Email доставка',
                             key === 'bureau' ? 'Приоритетная поддержка' : null,
@@ -271,6 +299,12 @@ export default function BillingPage() {
                             <li className="flex items-center gap-2 text-xs mt-1">
                               <ArrowRight size={11} className={key === 'pro' ? 'text-white/30' : 'text-slate-300'} />
                               <span className={key === 'pro' ? 'text-white/40' : 'text-slate-400'}>+{plan.extra_integration_price} ₽/мес за интеграцию сверх лимита</span>
+                            </li>
+                          )}
+                          {plan.extra_employee_price > 0 && (
+                            <li className="flex items-center gap-2 text-xs mt-1">
+                              <ArrowRight size={11} className={key === 'pro' ? 'text-white/30' : 'text-slate-300'} />
+                              <span className={key === 'pro' ? 'text-white/40' : 'text-slate-400'}>+{plan.extra_employee_price} ₽/мес за сотрудника сверх лимита</span>
                             </li>
                           )}
                         </ul>
@@ -332,6 +366,7 @@ export default function BillingPage() {
               { q: 'Можно ли сменить тариф?', a: 'Да, в любое время. При переходе на более дорогой тариф доплата рассчитывается пропорционально.' },
               { q: 'Что такое оплата за ресурс?', a: 'На тарифе Профи сверх 500 документов в месяц взимается 5 ₽ за каждый дополнительный документ.' },
               { q: 'Как считаются интеграции с 1С?', a: 'У каждого вашего клиента — своя база 1С. На тарифе Профи включено 5 подключений, каждое следующее — 500 ₽/мес. На Бюро интеграции не ограничены.' },
+              { q: 'Сколько стоит добавить сотрудника?', a: 'Первый сотрудник — бесплатно. Каждый следующий — 990 ₽/мес. На тарифе Бюро сотрудники не ограничены.' },
             ].map(({ q, a }) => (
               <div key={q} className="p-4 bg-slate-50 rounded-xl">
                 <p className="text-sm font-medium text-slate-800 mb-1">{q}</p>

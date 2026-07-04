@@ -14,12 +14,14 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import _first_tenant_id, get_current_tenant
+from app.api.auth import _first_tenant_id, get_current_tenant, get_current_user
 from app.db.database import get_db
 from app.models.client_contact import ClientContact
+from app.models.firm import User
 from app.models.portal_credential import PortalCredential
 from app.models.portal_message import PortalMessage
-from app.models.tenant import OneCDocument
+from app.models.tenant import OneCDocument, Tenant
+from app.services.activity_log import log_activity
 from app.services.auth_service import create_token, decode_token, hash_password, verify_password
 
 router  = APIRouter(prefix="/portal", tags=["portal"])
@@ -65,6 +67,7 @@ class PortalLoginPayload(BaseModel):
 async def set_credentials(
     data: SetCredentialsPayload,
     tenant_id: int = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     if not data.login.strip() or not data.password.strip():
@@ -102,6 +105,10 @@ async def set_credentials(
         )
         db.add(cred)
 
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="portal.set_credentials",
+                        description=f"Настроены учётные данные портала (логин: {cred.login}) для клиента {data.client_id}",
+                        entity_type="client", entity_id=data.client_id)
     await db.commit()
     await db.refresh(cred)
     return {"ok": True, "login": cred.login, "client_id": cred.client_id}
@@ -218,6 +225,11 @@ async def portal_chat_send(
         is_read          = False,
     )
     db.add(msg)
+    firm_row = await db.execute(select(Tenant.firm_id).where(Tenant.id == abonent.tenant_id))
+    await log_activity(db, actor_type="abonent", actor_name=abonent.name,
+                        firm_id=firm_row.scalar_one_or_none(), action="portal.chat_send",
+                        description=f"Сообщение от клиента «{abonent.name}» через портал",
+                        entity_type="client", entity_id=abonent.id)
     await db.commit()
     await db.refresh(msg)
     return {"ok": True, "id": msg.id}
@@ -227,6 +239,7 @@ async def portal_chat_send(
 async def portal_chat_mirror(
     data: PortalChatMirrorPayload,
     tenant_id: int = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Accountant-side mirror of an inbound message from another channel (e.g. Telegram)."""
@@ -254,6 +267,10 @@ async def portal_chat_mirror(
         is_read          = False,
     )
     db.add(msg)
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="portal.chat_mirror",
+                        description=f"Отзеркалено сообщение клиенту «{client_name}» ({data.source})",
+                        entity_type="client", entity_id=data.portal_client_id)
     await db.commit()
     await db.refresh(msg)
     return {"ok": True, "id": msg.id}
@@ -263,6 +280,7 @@ async def portal_chat_mirror(
 async def portal_chat_reply(
     data: PortalChatReplyPayload,
     tenant_id: int = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Accountant sends a reply visible on the portal."""
@@ -280,6 +298,10 @@ async def portal_chat_reply(
         is_read          = True,
     )
     db.add(msg)
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="portal.chat_reply",
+                        description=f"Ответ клиенту через портал ({data.portal_client_id})",
+                        entity_type="client", entity_id=data.portal_client_id)
     await db.commit()
     await db.refresh(msg)
     return {"ok": True, "id": msg.id}

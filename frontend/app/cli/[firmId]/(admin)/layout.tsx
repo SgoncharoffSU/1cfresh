@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter, useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, Users, MessageSquare, CheckSquare, FlaskConical, X, LogOut, CreditCard, Menu, RefreshCw } from 'lucide-react';
+import { BarChart3, Users, MessageSquare, CheckSquare, FlaskConical, X, LogOut, CreditCard, Menu, RefreshCw, UserCog } from 'lucide-react';
 import { TrialBanner } from '@/components/billing/TrialBanner';
 import { ThemeToggle }        from '@/components/ThemeToggle';
 import { LogoIcon }          from '@/components/icons/LogoIcon';
@@ -162,6 +162,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <CreditCard className="h-3.5 w-3.5 mr-2" />
               Подписка
             </DropdownMenuItem>
+            {user?.role === 'CHIEF_ACCOUNTANT' && (
+              <DropdownMenuItem onClick={() => router.push(`/cli/${firmIdParam}/employees`)}>
+                <UserCog className="h-3.5 w-3.5 mr-2" />
+                Сотрудники
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={handleSync} disabled={syncing}>
               <RefreshCw className={cn('h-3.5 w-3.5 mr-2', syncing && 'animate-spin')} />
               {syncing ? 'Синхронизация…' : 'Синхронизация'}

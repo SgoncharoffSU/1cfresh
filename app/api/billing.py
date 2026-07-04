@@ -16,6 +16,7 @@ from app.api.auth import get_current_user
 from app.db.database import get_db
 from app.models.firm import Firm, User
 from app.models.tenant import Tenant
+from app.services.activity_log import log_activity
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,8 @@ PLANS = {
         "extra_doc_price": 5,
         "included_integrations":   5,
         "extra_integration_price": 500,
+        "included_employees":      1,
+        "extra_employee_price":    990,
     },
     "bureau": {
         "name":         "Бюро",
@@ -44,6 +47,8 @@ PLANS = {
         "extra_doc_price": 0,
         "included_integrations":   None,  # unlimited
         "extra_integration_price": 0,
+        "included_employees":      None,  # unlimited
+        "extra_employee_price":    0,
     },
 }
 
@@ -68,6 +73,29 @@ def _integration_overage(plan: Optional[str], integrations_used: int) -> int:
     if included is None:
         return 0
     return max(0, integrations_used - included)
+
+
+async def _employees_used(db: AsyncSession, firm_id: int) -> int:
+    """Live count, same non-cached pattern as _integrations_used. Subtracts 1 to
+    exclude the original registrant/owner — there's no separate is_owner flag, so
+    "total active users minus the founding one" is the accepted convention for how
+    many employees have actually been *added*."""
+    from sqlalchemy import func
+    res = await db.execute(
+        select(func.count(User.id)).where(
+            User.firm_id == firm_id,
+            User.is_active == True,  # noqa: E712
+        )
+    )
+    return max(0, res.scalar_one() - 1)
+
+
+def _employee_overage(plan: Optional[str], employees_used: int) -> int:
+    plan_info = PLANS.get(plan or "pro", PLANS["pro"])
+    included = plan_info["included_employees"]
+    if included is None:
+        return 0
+    return max(0, employees_used - included)
 
 YOOKASSA_SHOP_ID  = os.getenv("YOOKASSA_SHOP_ID",  "")
 YOOKASSA_SECRET   = os.getenv("YOOKASSA_SECRET_KEY", "")
@@ -112,6 +140,9 @@ class BillingStatus(BaseModel):
     integrations_used:        int
     integrations_included:    Optional[int]
     extra_integration_price:  int
+    employees_used:           int
+    employees_included:       Optional[int]
+    extra_employee_price:     int
     estimated_amount:         float   # what the next create-payment call would charge, right now
 
 
@@ -155,6 +186,9 @@ async def get_billing_status(
     # Auto-expire trial
     if firm.subscription_status == "trial" and _days_left(firm) == 0:
         firm.subscription_status = "expired"
+        await log_activity(db, actor_type="system", firm_id=firm.id,
+                            action="billing.trial_expired",
+                            description=f"Пробный период фирмы «{firm.name}» истёк")
         await db.commit()
         await db.refresh(firm)
 
@@ -162,11 +196,17 @@ async def get_billing_status(
     trial_ends = (started + timedelta(days=TRIAL_DAYS)).isoformat() if started else None
 
     integrations_used = await _integrations_used(db, firm.id)
+    employees_used     = await _employees_used(db, firm.id)
     plan_key   = firm.subscription_plan or "pro"
     plan_info  = PLANS.get(plan_key, PLANS["pro"])
     overage    = _integration_overage(plan_key, integrations_used)
+    employee_overage = _employee_overage(plan_key, employees_used)
     base_price = plan_info["price_month"]
-    estimated_amount = float(base_price + overage * plan_info["extra_integration_price"])
+    estimated_amount = float(
+        base_price
+        + overage * plan_info["extra_integration_price"]
+        + employee_overage * plan_info["extra_employee_price"]
+    )
 
     return BillingStatus(
         status            = firm.subscription_status,
@@ -181,6 +221,9 @@ async def get_billing_status(
         integrations_used       = integrations_used,
         integrations_included   = plan_info["included_integrations"],
         extra_integration_price = plan_info["extra_integration_price"],
+        employees_used          = employees_used,
+        employees_included      = plan_info["included_employees"],
+        extra_employee_price    = plan_info["extra_employee_price"],
         estimated_amount        = estimated_amount,
     )
 
@@ -200,11 +243,25 @@ async def create_payment(
 
     integrations_used = await _integrations_used(db, user.firm_id)
     overage    = _integration_overage(body.plan, integrations_used)
-    # Overage is always billed as a monthly add-on (500₽/integration/mo), even on the
-    # yearly plan — charging it ×12 up front would be a surprising jump if someone
-    # connects a new client mid-year, so it's kept as a flat per-cycle surcharge.
-    overage_charge = overage * plan_info["extra_integration_price"]
-    amount = base_amount + overage_charge
+    employees_used   = await _employees_used(db, user.firm_id)
+    employee_overage = _employee_overage(body.plan, employees_used)
+    # Overage is always billed as a monthly add-on (500₽/integration/mo, 990₽/employee/mo),
+    # even on the yearly plan — charging it ×12 up front would be a surprising jump if
+    # someone connects a new client or hires mid-year, so it's kept as a flat per-cycle
+    # surcharge.
+    overage_charge  = overage * plan_info["extra_integration_price"]
+    employee_charge = employee_overage * plan_info["extra_employee_price"]
+    amount = base_amount + overage_charge + employee_charge
+
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="billing.create_payment",
+                        description=(
+                            f"Инициирован платёж: тариф {plan_info['name']} ({body.period})"
+                            + (f", {overage} доп. интеграций" if overage else "")
+                            + (f", {employee_overage} доп. сотрудников" if employee_overage else "")
+                        ),
+                        entity_type="firm", entity_id=user.firm_id)
+    await db.commit()
 
     if not YOOKASSA_SHOP_ID or not YOOKASSA_SECRET:
         # YooKassa not configured — return a mock response for development
@@ -231,12 +288,14 @@ async def create_payment(
             "description": (
                 f"BuhgSaaS — тариф {plan_info['name']} на {'год' if body.period == 'year' else 'месяц'}"
                 + (f" + {overage} доп. интеграций 1С" if overage else "")
+                + (f" + {employee_overage} доп. сотрудников" if employee_overage else "")
             ),
             "metadata": {
                 "firm_id": str(user.firm_id),
                 "plan":    body.plan,
                 "period":  body.period,
                 "integrations_charged": str(overage),
+                "employees_charged":    str(employee_overage),
             },
         }
         r = req.post(
@@ -292,6 +351,9 @@ async def yookassa_webhook(request: Request, db: AsyncSession = Depends(get_db))
     firm.subscription_plan    = plan
     firm.subscription_ends_at = ends
     firm.billing_period_start = now
+    await log_activity(db, actor_type="system", firm_id=firm_id,
+                        action="billing.webhook_activate",
+                        description=f"Оплата подтверждена: тариф {plan} активирован до {ends.date()}")
     await db.commit()
 
     logger.info("Firm %d activated plan=%s until %s", firm_id, plan, ends)
@@ -321,6 +383,9 @@ async def admin_activate(
     firm.subscription_plan    = body.plan
     firm.subscription_ends_at = ends
     firm.billing_period_start = now
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=body.firm_id, action="billing.admin_activate",
+                        description=f"Вручную активирован тариф {body.plan} на {body.months} мес.")
     await db.commit()
     return {"ok": True, "ends_at": ends.isoformat()}
 

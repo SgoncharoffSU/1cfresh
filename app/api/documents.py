@@ -9,12 +9,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
+from app.api.auth import get_current_user
 from app.api.deps import get_client_tenant
+from app.models.firm import User
 from app.models.tenant import OneCDocument
 from app.models.schedule import DocumentSchedule
 from app.schemas.document import (
     CounterpartyOut, DocumentItemOut, DocumentOut, SyncResult, DOC_TAB_NAMES,
 )
+from app.services.activity_log import log_activity
 
 _MOSCOW = timezone(timedelta(hours=3))
 
@@ -171,11 +174,17 @@ async def list_counterparties(
 @router.post("/sync", response_model=SyncResult)
 async def trigger_sync(
     tenant_id: int = Depends(get_client_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     from app.tasks.sync_tasks import sync_one_tenant
     result = sync_one_tenant.delay(tenant_id)
     data = result.get(timeout=30)
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="document.sync",
+                        description=f"Запущена синхронизация документов (тенант {tenant_id})",
+                        entity_type="tenant", entity_id=tenant_id)
+    await db.commit()
     return SyncResult(
         tenant_id=tenant_id,
         invoices=data.get("invoices", 0),
@@ -205,6 +214,7 @@ async def create_based_on(
     doc_ref_key: str,
     payload: BasedOnPayload,
     tenant_id: int = Depends(get_client_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Создать документ на основании (счёт-фактура или реализация) из счёта на оплату."""
@@ -251,6 +261,11 @@ async def create_based_on(
     new_number = created.get("Number") or ""
     print_url  = client.get_print_form_url(new_guid, entity) if new_guid else None
 
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="document.create_based_on",
+                        description=f"Создан документ {based_on} на основании {doc_ref_key}",
+                        entity_type="document", entity_id=new_guid or doc_ref_key)
+    await db.commit()
     return BasedOnResult(
         ok=True,
         guid=new_guid,
@@ -271,6 +286,7 @@ async def send_document_now(
     doc_ref_key: str,
     payload: SendNowPayload,
     tenant_id: int = Depends(get_client_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -345,6 +361,10 @@ async def send_document_now(
             error_count       = 0,
         )
         db.add(send_record)
+        await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                            firm_id=user.firm_id, action="document.send_now",
+                            description=f"Счёт №{doc.number} отправлен клиенту через Telegram",
+                            entity_type="document", entity_id=doc_ref_key)
         await db.commit()
         return {"ok": True, "channel": "TG"}
 

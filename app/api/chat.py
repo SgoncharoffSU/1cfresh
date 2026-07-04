@@ -8,9 +8,11 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_tenant
+from app.api.auth import get_current_tenant, get_current_user
 from app.db.database import get_db
 from app.models.chat_message import ChatMessage
+from app.models.firm import User
+from app.services.activity_log import log_activity
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -77,6 +79,7 @@ async def list_messages(
 async def create_message(
     data: MessageIn,
     tenant_id: int = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Idempotent by id — safe to retry from pollers/optimistic UI."""
@@ -101,6 +104,10 @@ async def create_message(
         done            = data.done,
     )
     db.add(msg)
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="chat.create_message",
+                        description=f"Сообщение в чат ({data.channel}) клиенту {data.clientId or '—'}",
+                        entity_type="chat_message", entity_id=msg.id)
     await db.commit()
     return {"ok": True, "id": msg.id}
 
@@ -109,6 +116,7 @@ async def create_message(
 async def mark_done(
     message_id: str,
     tenant_id: int = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     msg = await db.get(ChatMessage, message_id)
@@ -116,6 +124,10 @@ async def mark_done(
         return {"ok": False}
     msg.done    = True
     msg.done_at = datetime.utcnow()
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="chat.mark_done",
+                        description=f"Сообщение {message_id} отмечено обработанным",
+                        entity_type="chat_message", entity_id=message_id)
     await db.commit()
     return {"ok": True}
 
@@ -124,10 +136,15 @@ async def mark_done(
 async def delete_client_messages(
     client_id: str = Query(...),
     tenant_id: int = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await db.execute(
         delete(ChatMessage).where(ChatMessage.tenant_id == tenant_id, ChatMessage.client_id == client_id)
     )
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="chat.delete_messages",
+                        description=f"Удалена переписка с клиентом {client_id}",
+                        entity_type="client", entity_id=client_id)
     await db.commit()
     return {"ok": True}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { X, Printer, Loader2, AlertCircle } from 'lucide-react';
-import { API, apiFetch } from '@/lib/api';
+import { API, apiFetch, ActFormFields, EMPTY_ACT_FORM_FIELDS } from '@/lib/api';
 
 interface Props {
   clientId: string;
@@ -12,25 +12,24 @@ interface Props {
   onClose:  () => void;
 }
 
-interface Profile {
-  podryadchik_address: string;
-  podryadchik_phone:   string;
-  podryadchik_okpo:    string;
-  zakazchik_address:   string;
-  zakazchik_phone:     string;
-  zakazchik_okpo:      string;
-  investor_name:       string;
-  investor_address:    string;
-  investor_okpo:       string;
-  stroika_name:        string;
-  okdp:                string;
-}
-
-const EMPTY_PROFILE: Profile = {
-  podryadchik_address: '', podryadchik_phone: '', podryadchik_okpo: '',
-  zakazchik_address: '', zakazchik_phone: '', zakazchik_okpo: '',
-  investor_name: '', investor_address: '', investor_okpo: '',
-  stroika_name: '', okdp: '',
+// Maps ActFormFields keys -> backend field_name, for fields that get pick-from-history
+// suggestions. Период (periodFrom/periodTo) is intentionally excluded — a date range is
+// unique to each act, remembering it wouldn't be useful.
+const HISTORY_FIELDS: Partial<Record<keyof ActFormFields, string>> = {
+  objectName: 'object_name',
+  contractNumber: 'contract_number',
+  contractDate: 'contract_date',
+  stroikaName: 'stroika_name',
+  podryadchikAddress: 'podryadchik_address',
+  podryadchikPhone: 'podryadchik_phone',
+  podryadchikOkpo: 'podryadchik_okpo',
+  zakazchikAddress: 'zakazchik_address',
+  zakazchikPhone: 'zakazchik_phone',
+  zakazchikOkpo: 'zakazchik_okpo',
+  investorName: 'investor_name',
+  investorAddress: 'investor_address',
+  investorOkpo: 'investor_okpo',
+  okdp: 'okdp',
 };
 
 const TITLE: Record<Props['kind'], string> = {
@@ -38,26 +37,65 @@ const TITLE: Record<Props['kind'], string> = {
   ks3: 'Печать КС-3 — Справка о стоимости выполненных работ',
 };
 
+const inputCls = "w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500";
+const labelCls = "block text-[11px] font-medium text-slate-600 mb-0.5";
+
+/** Text input with a native pick-from-history dropdown (datalist) — type freely or pick a
+ * previously used value; new values get remembered server-side once the form is printed.
+ * Defined outside ActPrintModal (not as an inline closure) so its identity is stable across
+ * renders — an inline component here would remount the <input> on every keystroke and drop
+ * focus. */
+function HistoryInput({ listId, value, onChange, options, placeholder, className }: {
+  listId: string; value: string; onChange: (v: string) => void;
+  options: string[]; placeholder?: string; className?: string;
+}) {
+  return (
+    <>
+      <input
+        className={className ?? inputCls}
+        list={listId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+      {options.length > 0 && (
+        <datalist id={listId}>
+          {options.map((v) => <option key={v} value={v} />)}
+        </datalist>
+      )}
+    </>
+  );
+}
+
 export function ActPrintModal({ clientId, refKey, docNumber, kind, onClose }: Props) {
-  const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
-  const [objectName,     setObjectName]     = useState('');
-  const [contractNumber, setContractNumber] = useState('');
-  const [contractDate,   setContractDate]   = useState('');
-  const [periodFrom,     setPeriodFrom]     = useState('');
-  const [periodTo,       setPeriodTo]       = useState('');
-  const [loading, setLoading] = useState(true);
-  const [printing, setPrinting] = useState(false);
-  const [error, setError] = useState('');
+  const [fields, setFields]       = useState<ActFormFields>(EMPTY_ACT_FORM_FIELDS);
+  const [suggestions, setSuggestions] = useState<Record<string, string[]>>({});
+  const [loading, setLoading]     = useState(true);
+  const [printing, setPrinting]   = useState(false);
+  const [error, setError]         = useState('');
 
   useEffect(() => {
-    apiFetch(API.actForms.profile(clientId))
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (data) setProfile({ ...EMPTY_PROFILE, ...data }); })
+    const backendNames = Object.values(HISTORY_FIELDS) as string[];
+    apiFetch(API.actForms.fieldValues(clientId, backendNames))
+      .then((r) => r.ok ? r.json() : {})
+      .then((data: Record<string, string[]>) => {
+        setSuggestions(data);
+        // Pre-fill each field with its most-recently-used value, still fully editable.
+        setFields((prev) => {
+          const next = { ...prev };
+          (Object.keys(HISTORY_FIELDS) as (keyof ActFormFields)[]).forEach((key) => {
+            const backendName = HISTORY_FIELDS[key]!;
+            const first = data[backendName]?.[0];
+            if (first) next[key] = first;
+          });
+          return next;
+        });
+      })
       .finally(() => setLoading(false));
   }, [clientId]);
 
-  function set<K extends keyof Profile>(key: K, value: string) {
-    setProfile((p) => ({ ...p, [key]: value }));
+  function set<K extends keyof ActFormFields>(key: K, value: string) {
+    setFields((p) => ({ ...p, [key]: value }));
   }
 
   async function handlePrint(e: React.FormEvent) {
@@ -65,13 +103,9 @@ export function ActPrintModal({ clientId, refKey, docNumber, kind, onClose }: Pr
     setError('');
     setPrinting(true);
     try {
-      await apiFetch(API.actForms.profile(clientId), {
-        method: 'PUT',
-        body: JSON.stringify(profile),
-      });
       const url = kind === 'ks2'
-        ? API.actForms.ks2(clientId, refKey, { object: objectName, contractNumber, contractDate, periodFrom, periodTo })
-        : API.actForms.ks3(clientId, refKey, { object: objectName, contractNumber, contractDate, periodFrom, periodTo });
+        ? API.actForms.ks2(clientId, refKey, fields)
+        : API.actForms.ks3(clientId, refKey, fields);
       const res = await apiFetch(url);
       if (!res.ok) { setError('Не удалось сформировать документ'); return; }
       const html = await res.text();
@@ -86,8 +120,21 @@ export function ActPrintModal({ clientId, refKey, docNumber, kind, onClose }: Pr
     }
   }
 
-  const inputCls = "w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500";
-  const labelCls = "block text-[11px] font-medium text-slate-600 mb-0.5";
+  /** Bind a remembered field to the shared HistoryInput, resolving its suggestion list. */
+  function bound(field: keyof ActFormFields, placeholder?: string, className?: string) {
+    const backendName = HISTORY_FIELDS[field];
+    const options = backendName ? suggestions[backendName] ?? [] : [];
+    return (
+      <HistoryInput
+        listId={`dl-${field}`}
+        value={fields[field]}
+        onChange={(v) => set(field, v)}
+        options={options}
+        placeholder={placeholder}
+        className={className}
+      />
+    );
+  }
 
   return (
     <>
@@ -111,28 +158,32 @@ export function ActPrintModal({ clientId, refKey, docNumber, kind, onClose }: Pr
           </div>
         ) : (
           <form onSubmit={handlePrint} className="p-5 space-y-4 overflow-y-auto flex-1">
+            <p className="text-[11px] text-slate-400 -mt-1">
+              Поля ниже начните вводить — появятся ранее использованные варианты для этого клиента.
+            </p>
+
             <div>
               <p className="text-[11px] font-semibold text-slate-700 uppercase tracking-wide mb-2">По этому акту</p>
               <div className="grid grid-cols-2 gap-2.5">
                 <div className="col-span-2">
                   <label className={labelCls}>Объект</label>
-                  <input className={inputCls} value={objectName} onChange={(e) => setObjectName(e.target.value)} placeholder="Наименование объекта" />
+                  {bound('objectName', 'Наименование объекта')}
                 </div>
                 <div>
                   <label className={labelCls}>Договор №</label>
-                  <input className={inputCls} value={contractNumber} onChange={(e) => setContractNumber(e.target.value)} />
+                  {bound('contractNumber')}
                 </div>
                 <div>
                   <label className={labelCls}>Договор от</label>
-                  <input className={inputCls} type="text" placeholder="дд.мм.гггг" value={contractDate} onChange={(e) => setContractDate(e.target.value)} />
+                  {bound('contractDate', 'дд.мм.гггг')}
                 </div>
                 <div>
                   <label className={labelCls}>Период с</label>
-                  <input className={inputCls} type="text" placeholder="дд.мм.гггг" value={periodFrom} onChange={(e) => setPeriodFrom(e.target.value)} />
+                  <input className={inputCls} type="text" placeholder="дд.мм.гггг" value={fields.periodFrom} onChange={(e) => set('periodFrom', e.target.value)} />
                 </div>
                 <div>
                   <label className={labelCls}>Период по</label>
-                  <input className={inputCls} type="text" placeholder="дд.мм.гггг" value={periodTo} onChange={(e) => setPeriodTo(e.target.value)} />
+                  <input className={inputCls} type="text" placeholder="дд.мм.гггг" value={fields.periodTo} onChange={(e) => set('periodTo', e.target.value)} />
                 </div>
               </div>
             </div>
@@ -141,36 +192,36 @@ export function ActPrintModal({ clientId, refKey, docNumber, kind, onClose }: Pr
 
             <div>
               <p className="text-[11px] font-semibold text-slate-700 uppercase tracking-wide mb-2">
-                Постоянные реквизиты клиента <span className="font-normal normal-case text-slate-400">— заполняются один раз</span>
+                Реквизиты клиента <span className="font-normal normal-case text-slate-400">— запоминаются, в следующий раз можно выбрать</span>
               </p>
               <div className="space-y-2.5">
                 <div>
                   <label className={labelCls}>Подрядчик — адрес/телефон</label>
                   <div className="grid grid-cols-3 gap-2">
-                    <input className={`${inputCls} col-span-2`} value={profile.podryadchik_address} onChange={(e) => set('podryadchik_address', e.target.value)} placeholder="Адрес" />
-                    <input className={inputCls} value={profile.podryadchik_phone} onChange={(e) => set('podryadchik_phone', e.target.value)} placeholder="Телефон" />
+                    <div className="col-span-2">{bound('podryadchikAddress', 'Адрес')}</div>
+                    {bound('podryadchikPhone', 'Телефон')}
                   </div>
-                  <input className={`${inputCls} mt-2 w-32`} value={profile.podryadchik_okpo} onChange={(e) => set('podryadchik_okpo', e.target.value)} placeholder="ОКПО" />
+                  <div className="w-32 mt-2">{bound('podryadchikOkpo', 'ОКПО')}</div>
                 </div>
                 <div>
                   <label className={labelCls}>Заказчик — адрес/телефон</label>
                   <div className="grid grid-cols-3 gap-2">
-                    <input className={`${inputCls} col-span-2`} value={profile.zakazchik_address} onChange={(e) => set('zakazchik_address', e.target.value)} placeholder="Адрес" />
-                    <input className={inputCls} value={profile.zakazchik_phone} onChange={(e) => set('zakazchik_phone', e.target.value)} placeholder="Телефон" />
+                    <div className="col-span-2">{bound('zakazchikAddress', 'Адрес')}</div>
+                    {bound('zakazchikPhone', 'Телефон')}
                   </div>
-                  <input className={`${inputCls} mt-2 w-32`} value={profile.zakazchik_okpo} onChange={(e) => set('zakazchik_okpo', e.target.value)} placeholder="ОКПО" />
+                  <div className="w-32 mt-2">{bound('zakazchikOkpo', 'ОКПО')}</div>
                 </div>
                 <div>
                   <label className={labelCls}>Инвестор (необязательно)</label>
-                  <input className={`${inputCls} mb-2`} value={profile.investor_name} onChange={(e) => set('investor_name', e.target.value)} placeholder="Наименование" />
+                  <div className="mb-2">{bound('investorName', 'Наименование')}</div>
                   <div className="grid grid-cols-3 gap-2">
-                    <input className={`${inputCls} col-span-2`} value={profile.investor_address} onChange={(e) => set('investor_address', e.target.value)} placeholder="Адрес" />
-                    <input className={inputCls} value={profile.investor_okpo} onChange={(e) => set('investor_okpo', e.target.value)} placeholder="ОКПО" />
+                    <div className="col-span-2">{bound('investorAddress', 'Адрес')}</div>
+                    {bound('investorOkpo', 'ОКПО')}
                   </div>
                 </div>
                 <div>
                   <label className={labelCls}>Стройка</label>
-                  <input className={inputCls} value={profile.stroika_name} onChange={(e) => set('stroika_name', e.target.value)} placeholder="Наименование, адрес" />
+                  {bound('stroikaName', 'Наименование, адрес')}
                 </div>
               </div>
             </div>
@@ -188,7 +239,7 @@ export function ActPrintModal({ clientId, refKey, docNumber, kind, onClose }: Pr
               className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50"
             >
               {printing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
-              {printing ? 'Формируем…' : 'Сохранить и распечатать'}
+              {printing ? 'Формируем…' : 'Распечатать'}
             </button>
           </form>
         )}

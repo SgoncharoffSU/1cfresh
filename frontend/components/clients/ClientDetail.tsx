@@ -6,10 +6,15 @@ import {
   ArrowLeft, MessageSquare, CheckSquare, FileText, Zap, ScrollText,
   MessageCircle, CheckCircle2, XCircle, Circle, Mail, RefreshCw, CalendarClock,
   Pencil, Trash2, ToggleLeft, ToggleRight, Globe, Eye, EyeOff, Copy, ExternalLink,
+  Printer,
 } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ChatView, Group } from '@/components/chat/ChatCRM';
 import { InvoicePanel, ApiDocFull } from '@/components/dashboard/InvoicePanel';
 import { ScheduleModal, DocSchedule } from '@/components/schedule/ScheduleModal';
+import { ActPrintModal } from '@/components/schedule/ActPrintModal';
 import { useClientStore } from '@/store/useClientStore';
 import { useChatStore }   from '@/store/useChatStore';
 import { useTaskStore }   from '@/store/useTaskStore';
@@ -326,6 +331,7 @@ function DocsTab({ clientId }: { clientId: string }) {
   const [scheduling,  setScheduling]  = useState<ApiDocFull | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [newIds,      setNewIds]      = useState<Set<string>>(new Set());
+  const [printingAct, setPrintingAct] = useState<{ doc: ApiDocFull; kind: 'ks2' | 'ks3' } | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -472,19 +478,46 @@ function DocsTab({ clientId }: { clientId: string }) {
                       {doc.amount.toLocaleString('ru-RU', { minimumFractionDigits: 0 })} ₽
                     </td>
                     <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
-                      <button
-                        onClick={() => setScheduling(scheduling?.id === doc.id ? null : doc)}
-                        className={cn(
-                          'inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors',
-                          scheduling?.id === doc.id
-                            ? 'bg-blue-600 text-white border-blue-600'
-                            : 'bg-white text-slate-600 border-slate-200 hover:border-blue-400 hover:text-blue-600'
-                        )}
-                        title="Создать по расписанию"
-                      >
-                        <CalendarClock className="h-3 w-3" />
-                        Расписание
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              className="inline-flex items-center justify-center h-6 w-6 rounded border border-slate-200 bg-white text-slate-500 hover:border-blue-400 hover:text-blue-600 transition-colors"
+                              title="Печать"
+                            >
+                              <Printer className="h-3 w-3" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start">
+                            <DropdownMenuItem onClick={() => window.open(API.documents.print(clientId, doc.id), '_blank')}>
+                              Печатная форма
+                            </DropdownMenuItem>
+                            {doc.type === 'SALE' && (
+                              <>
+                                <DropdownMenuItem onClick={() => setPrintingAct({ doc, kind: 'ks2' })}>
+                                  КС-2 — Акт о приёмке работ
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setPrintingAct({ doc, kind: 'ks3' })}>
+                                  КС-3 — Справка о стоимости
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                        <button
+                          onClick={() => setScheduling(scheduling?.id === doc.id ? null : doc)}
+                          className={cn(
+                            'inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium border transition-colors',
+                            scheduling?.id === doc.id
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-slate-600 border-slate-200 hover:border-blue-400 hover:text-blue-600'
+                          )}
+                          title="Создать по расписанию"
+                        >
+                          <CalendarClock className="h-3 w-3" />
+                          Расписание
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   {scheduling?.id === doc.id && (
@@ -521,6 +554,16 @@ function DocsTab({ clientId }: { clientId: string }) {
       )}
 
       <InvoicePanel doc={selected} clientId={clientId} onClose={() => setSelected(null)} />
+
+      {printingAct && (
+        <ActPrintModal
+          clientId={clientId}
+          refKey={printingAct.doc.id}
+          docNumber={printingAct.doc.number}
+          kind={printingAct.kind}
+          onClose={() => setPrintingAct(null)}
+        />
+      )}
     </div>
   );
 }

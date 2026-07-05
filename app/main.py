@@ -35,7 +35,7 @@ import app.models.superadmin         # noqa: F401
 import app.models.impersonation_log  # noqa: F401
 import app.models.abonent_counter    # noqa: F401
 import app.models.activity_log       # noqa: F401
-import app.models.act_profile        # noqa: F401
+import app.models.act_field_value    # noqa: F401
 
 logger = logging.getLogger(__name__)
 

@@ -4,10 +4,12 @@
 schema, so SALE stands in for it — that's the same document a construction contractor
 would otherwise print as an act anyway.
 
-Organizational boilerplate that exists in neither 1C nor our own data model (addresses,
-phone numbers, ОКПО codes, Инвестор, Стройка) is stored per-client in ClientActProfile
-and reused across every act — see app/models/act_profile.py. Per-act specifics (Объект,
-Договор №/дата, отчётный период) are supplied fresh each time via query params.
+Fields that exist in neither 1C nor our own data model (Объект, Договор №/дата, Стройка,
+addresses, ОКПО, Инвестор) are supplied by the accountant at print time. Every non-empty
+value is remembered per (client, field) in ClientActFieldValue — see that model — so the
+next print offers it back as a pick-from-history suggestion instead of a blank field or a
+single silently-overwritten default. Отчётный период (period_from/period_to) is
+deliberately NOT remembered — a date range is unique to each act by definition.
 """
 from __future__ import annotations
 
@@ -22,42 +24,63 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_client_tenant
 from app.db.database import get_db
-from app.models.act_profile import ClientActProfile
+from app.models.act_field_value import ClientActFieldValue
 from app.models.client_contact import ClientContact
 from app.models.tenant import OneCDocument
-from app.schemas.act_profile import ActProfileIn, ActProfileOut
 
 router = APIRouter(prefix="/act-forms", tags=["act-forms"])
 
+# Fields the accountant fills in that get remembered (pick-from-history) per client.
+REMEMBERED_FIELDS = [
+    "object_name", "contract_number", "contract_date", "stroika_name",
+    "podryadchik_address", "podryadchik_phone", "podryadchik_okpo",
+    "zakazchik_address", "zakazchik_phone", "zakazchik_okpo",
+    "investor_name", "investor_address", "investor_okpo", "okdp",
+]
 
-# ─── Per-client boilerplate profile ────────────────────────────────────────────
 
-@router.get("/profile", response_model=ActProfileOut)
-async def get_profile(
+# ─── Remembered field-value history ────────────────────────────────────────────
+
+@router.get("/field-values")
+async def get_field_values(
     client_id: str,
+    fields: str = Query(..., description="Comma-separated field names"),
     tenant_id: int = Depends(get_client_tenant),
     db: AsyncSession = Depends(get_db),
 ):
-    profile = await db.get(ClientActProfile, client_id)
-    return ActProfileOut.model_validate(profile) if profile else ActProfileOut()
+    """Suggestions for each requested field, most-recently-used first — powers the
+    print modal's pick-from-history inputs."""
+    names = [f.strip() for f in fields.split(",") if f.strip()]
+    result: dict[str, list[str]] = {name: [] for name in names}
+    if not names:
+        return result
+    res = await db.execute(
+        select(ClientActFieldValue)
+        .where(ClientActFieldValue.client_id == client_id, ClientActFieldValue.field_name.in_(names))
+        .order_by(ClientActFieldValue.last_used_at.desc())
+    )
+    for row in res.scalars():
+        result.setdefault(row.field_name, []).append(row.value)
+    return result
 
 
-@router.put("/profile", response_model=ActProfileOut)
-async def set_profile(
-    client_id: str,
-    data: ActProfileIn,
-    tenant_id: int = Depends(get_client_tenant),
-    db: AsyncSession = Depends(get_db),
-):
-    profile = await db.get(ClientActProfile, client_id)
-    if profile is None:
-        profile = ClientActProfile(client_id=client_id)
-        db.add(profile)
-    for field, value in data.model_dump().items():
-        setattr(profile, field, value)
-    await db.commit()
-    await db.refresh(profile)
-    return ActProfileOut.model_validate(profile)
+async def _remember_fields(db: AsyncSession, client_id: str, values: dict[str, str]) -> None:
+    for field_name, value in values.items():
+        value = (value or "").strip()
+        if not value or field_name not in REMEMBERED_FIELDS:
+            continue
+        existing = await db.execute(
+            select(ClientActFieldValue).where(
+                ClientActFieldValue.client_id == client_id,
+                ClientActFieldValue.field_name == field_name,
+                ClientActFieldValue.value == value,
+            )
+        )
+        row = existing.scalar_one_or_none()
+        if row:
+            row.last_used_at = datetime.utcnow()
+        else:
+            db.add(ClientActFieldValue(client_id=client_id, field_name=field_name, value=value))
 
 
 # ─── Shared helpers ─────────────────────────────────────────────────────────────
@@ -115,8 +138,6 @@ async def _load_context(db: AsyncSession, tenant_id: int, client_id: str, ref_ke
     if not client:
         raise HTTPException(status_code=404, detail="Клиент не найден")
 
-    profile = await db.get(ClientActProfile, client_id)
-
     items: list[dict] = []
     if doc.items_json:
         try:
@@ -135,7 +156,7 @@ async def _load_context(db: AsyncSession, tenant_id: int, client_id: str, ref_ke
             "amount": float(it.get("Сумма", 0) or 0),
         })
 
-    return doc, client, profile, rows
+    return doc, client, rows
 
 
 _PAGE_STYLE = """
@@ -180,12 +201,51 @@ def _party_row(label: str, name: str, address: str, phone: str, okpo: str) -> st
     </tr>"""
 
 
+class FieldsQuery:
+    """Shared query params for both КС-2 and КС-3 — every non-1C field the form needs."""
+    def __init__(
+        self,
+        object_name:          str = Query("", alias="object"),
+        contract_number:      str = Query(""),
+        contract_date:        str = Query(""),
+        period_from:          str = Query(""),
+        period_to:            str = Query(""),
+        stroika_name:         str = Query(""),
+        podryadchik_address:  str = Query(""),
+        podryadchik_phone:    str = Query(""),
+        podryadchik_okpo:     str = Query(""),
+        zakazchik_address:    str = Query(""),
+        zakazchik_phone:      str = Query(""),
+        zakazchik_okpo:       str = Query(""),
+        investor_name:        str = Query(""),
+        investor_address:     str = Query(""),
+        investor_okpo:        str = Query(""),
+        okdp:                 str = Query(""),
+    ):
+        self.object_name = object_name
+        self.contract_number = contract_number
+        self.contract_date = contract_date
+        self.period_from = period_from
+        self.period_to = period_to
+        self.stroika_name = stroika_name
+        self.podryadchik_address = podryadchik_address
+        self.podryadchik_phone = podryadchik_phone
+        self.podryadchik_okpo = podryadchik_okpo
+        self.zakazchik_address = zakazchik_address
+        self.zakazchik_phone = zakazchik_phone
+        self.zakazchik_okpo = zakazchik_okpo
+        self.investor_name = investor_name
+        self.investor_address = investor_address
+        self.investor_okpo = investor_okpo
+        self.okdp = okdp
+
+    def as_remember_dict(self) -> dict[str, str]:
+        return {name: getattr(self, name) for name in REMEMBERED_FIELDS}
+
+
 # ─── КС-2 ───────────────────────────────────────────────────────────────────────
 
-def _build_ks2_html(doc: OneCDocument, client: ClientContact, profile: Optional[ClientActProfile],
-                     rows: list[dict], object_name: str, contract_number: str, contract_date: str,
-                     period_from: str, period_to: str) -> str:
-    p = profile
+def _build_ks2_html(doc: OneCDocument, client: ClientContact, rows: list[dict], f: FieldsQuery) -> str:
     items_html = ""
     total = 0.0
     for i, r in enumerate(rows, start=1):
@@ -217,21 +277,21 @@ def _build_ks2_html(doc: OneCDocument, client: ClientContact, profile: Optional[
 <div style="clear:both"></div>
 
 <table class="parties">
-  {_party_row("Инвестор", p.investor_name if p else "", p.investor_address if p else "", "", p.investor_okpo if p else "")}
-  {_party_row("Заказчик (Генподрядчик)", doc.counterparty_name, p.zakazchik_address if p else "", p.zakazchik_phone if p else "", p.zakazchik_okpo if p else "")}
-  {_party_row("Подрядчик (Субподрядчик)", client.name, p.podryadchik_address if p else "", p.podryadchik_phone if p else "", p.podryadchik_okpo if p else "")}
-  <tr><td class="label">Стройка</td><td class="fill" colspan="3">{(p.stroika_name if p else "") or "—"}</td></tr>
-  <tr><td class="label">Объект</td><td class="fill" colspan="3">{object_name or "—"}</td></tr>
+  {_party_row("Инвестор", f.investor_name, f.investor_address, "", f.investor_okpo)}
+  {_party_row("Заказчик (Генподрядчик)", doc.counterparty_name, f.zakazchik_address, f.zakazchik_phone, f.zakazchik_okpo)}
+  {_party_row("Подрядчик (Субподрядчик)", client.name, f.podryadchik_address, f.podryadchik_phone, f.podryadchik_okpo)}
+  <tr><td class="label">Стройка</td><td class="fill" colspan="3">{f.stroika_name or "—"}</td></tr>
+  <tr><td class="label">Объект</td><td class="fill" colspan="3">{f.object_name or "—"}</td></tr>
 </table>
 
 <table class="meta">
   <tr><th>Договор подряда №</th><th>от</th><th>Номер документа</th><th>Дата составления</th><th>Отчётный период</th></tr>
   <tr>
-    <td>{contract_number or "—"}</td>
-    <td>{contract_date or "—"}</td>
+    <td>{f.contract_number or "—"}</td>
+    <td>{f.contract_date or "—"}</td>
     <td>{doc.number}</td>
     <td>{_fmt_date(doc.date)}</td>
-    <td>{period_from or _fmt_date(doc.date)} — {period_to or _fmt_date(doc.date)}</td>
+    <td>{f.period_from or _fmt_date(doc.date)} — {f.period_to or _fmt_date(doc.date)}</td>
   </tr>
 </table>
 
@@ -273,26 +333,19 @@ def _build_ks2_html(doc: OneCDocument, client: ClientContact, profile: Optional[
 async def print_ks2(
     ref_key: str,
     client_id: str,
-    object_name:     str = Query("", alias="object"),
-    contract_number: str = Query(""),
-    contract_date:   str = Query(""),
-    period_from:     str = Query(""),
-    period_to:       str = Query(""),
+    f: FieldsQuery = Depends(),
     tenant_id: int = Depends(get_client_tenant),
     db: AsyncSession = Depends(get_db),
 ):
-    doc, client, profile, rows = await _load_context(db, tenant_id, client_id, ref_key)
-    return HTMLResponse(content=_build_ks2_html(
-        doc, client, profile, rows, object_name, contract_number, contract_date, period_from, period_to,
-    ))
+    doc, client, rows = await _load_context(db, tenant_id, client_id, ref_key)
+    await _remember_fields(db, client_id, f.as_remember_dict())
+    await db.commit()
+    return HTMLResponse(content=_build_ks2_html(doc, client, rows, f))
 
 
 # ─── КС-3 ───────────────────────────────────────────────────────────────────────
 
-def _build_ks3_html(doc: OneCDocument, client: ClientContact, profile: Optional[ClientActProfile],
-                     rows: list[dict], object_name: str, contract_number: str, contract_date: str,
-                     period_from: str, period_to: str) -> str:
-    p = profile
+def _build_ks3_html(doc: OneCDocument, client: ClientContact, rows: list[dict], f: FieldsQuery) -> str:
     total = sum(r["amount"] for r in rows) or float(doc.amount or 0)
     # Simplified per the accepted scope: all three cumulative columns equal this act's amount
     # (no running-total-across-acts calculation) — each справка stands alone.
@@ -312,21 +365,21 @@ def _build_ks3_html(doc: OneCDocument, client: ClientContact, profile: Optional[
 <div style="clear:both"></div>
 
 <table class="parties">
-  {_party_row("Инвестор", p.investor_name if p else "", p.investor_address if p else "", "", p.investor_okpo if p else "")}
-  {_party_row("Заказчик (Генподрядчик)", doc.counterparty_name, p.zakazchik_address if p else "", p.zakazchik_phone if p else "", p.zakazchik_okpo if p else "")}
-  {_party_row("Подрядчик (Субподрядчик)", client.name, p.podryadchik_address if p else "", p.podryadchik_phone if p else "", p.podryadchik_okpo if p else "")}
-  <tr><td class="label">Стройка</td><td class="fill" colspan="3">{(p.stroika_name if p else "") or "—"}</td></tr>
-  <tr><td class="label">Объект</td><td class="fill" colspan="3">{object_name or "—"}</td></tr>
+  {_party_row("Инвестор", f.investor_name, f.investor_address, "", f.investor_okpo)}
+  {_party_row("Заказчик (Генподрядчик)", doc.counterparty_name, f.zakazchik_address, f.zakazchik_phone, f.zakazchik_okpo)}
+  {_party_row("Подрядчик (Субподрядчик)", client.name, f.podryadchik_address, f.podryadchik_phone, f.podryadchik_okpo)}
+  <tr><td class="label">Стройка</td><td class="fill" colspan="3">{f.stroika_name or "—"}</td></tr>
+  <tr><td class="label">Объект</td><td class="fill" colspan="3">{f.object_name or "—"}</td></tr>
 </table>
 
 <table class="meta">
   <tr><th>Договор подряда №</th><th>от</th><th>Номер документа</th><th>Дата составления</th><th>Отчётный период</th></tr>
   <tr>
-    <td>{contract_number or "—"}</td>
-    <td>{contract_date or "—"}</td>
+    <td>{f.contract_number or "—"}</td>
+    <td>{f.contract_date or "—"}</td>
     <td>{doc.number}</td>
     <td>{_fmt_date(doc.date)}</td>
-    <td>{period_from or _fmt_date(doc.date)} — {period_to or _fmt_date(doc.date)}</td>
+    <td>{f.period_from or _fmt_date(doc.date)} — {f.period_to or _fmt_date(doc.date)}</td>
   </tr>
 </table>
 
@@ -362,7 +415,7 @@ def _build_ks3_html(doc: OneCDocument, client: ClientContact, profile: Optional[
 
 <div class="sign-block">
   Заказчик (Генподрядчик) <span class="sign-line"></span> <span class="sign-line"></span> <span class="sign-line"></span><br>
-  <span style="font-size:8pt;color:#666">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(должность)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(подпись)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(расшифровка подписи)</span>
+  <span style="font-size:8pt;color:#666">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(должность)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(подпись)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(расшифровка подписи)</span>
 </div>
 <div class="sign-block">
   Подрядчик (Субподрядчик) <span class="sign-line"></span> <span class="sign-line"></span> <span class="sign-line"></span><br>
@@ -377,15 +430,11 @@ def _build_ks3_html(doc: OneCDocument, client: ClientContact, profile: Optional[
 async def print_ks3(
     ref_key: str,
     client_id: str,
-    object_name:     str = Query("", alias="object"),
-    contract_number: str = Query(""),
-    contract_date:   str = Query(""),
-    period_from:     str = Query(""),
-    period_to:       str = Query(""),
+    f: FieldsQuery = Depends(),
     tenant_id: int = Depends(get_client_tenant),
     db: AsyncSession = Depends(get_db),
 ):
-    doc, client, profile, rows = await _load_context(db, tenant_id, client_id, ref_key)
-    return HTMLResponse(content=_build_ks3_html(
-        doc, client, profile, rows, object_name, contract_number, contract_date, period_from, period_to,
-    ))
+    doc, client, rows = await _load_context(db, tenant_id, client_id, ref_key)
+    await _remember_fields(db, client_id, f.as_remember_dict())
+    await db.commit()
+    return HTMLResponse(content=_build_ks3_html(doc, client, rows, f))

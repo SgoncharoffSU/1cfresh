@@ -37,6 +37,50 @@ export async function superAdminApiFetch(url: string, init: RequestInit = {}): P
   return fetch(url, { ...init, headers });
 }
 
+/** Every non-1C field the КС-2/КС-3 print forms need — see app/api/act_forms.py's
+ * FieldsQuery / REMEMBERED_FIELDS on the backend for the matching shape. */
+export interface ActFormFields {
+  objectName:         string;
+  contractNumber:     string;
+  contractDate:       string;
+  periodFrom:         string;
+  periodTo:           string;
+  stroikaName:        string;
+  podryadchikAddress: string;
+  podryadchikPhone:   string;
+  podryadchikOkpo:    string;
+  zakazchikAddress:   string;
+  zakazchikPhone:     string;
+  zakazchikOkpo:      string;
+  investorName:       string;
+  investorAddress:    string;
+  investorOkpo:       string;
+  okdp:               string;
+}
+
+export const EMPTY_ACT_FORM_FIELDS: ActFormFields = {
+  objectName: '', contractNumber: '', contractDate: '', periodFrom: '', periodTo: '',
+  stroikaName: '', podryadchikAddress: '', podryadchikPhone: '', podryadchikOkpo: '',
+  zakazchikAddress: '', zakazchikPhone: '', zakazchikOkpo: '',
+  investorName: '', investorAddress: '', investorOkpo: '', okdp: '',
+};
+
+function actFieldsToQuery(clientId: string, fields: ActFormFields): string {
+  const qs = new URLSearchParams({ client_id: clientId });
+  const map: Record<keyof ActFormFields, string> = {
+    objectName: 'object', contractNumber: 'contract_number', contractDate: 'contract_date',
+    periodFrom: 'period_from', periodTo: 'period_to', stroikaName: 'stroika_name',
+    podryadchikAddress: 'podryadchik_address', podryadchikPhone: 'podryadchik_phone', podryadchikOkpo: 'podryadchik_okpo',
+    zakazchikAddress: 'zakazchik_address', zakazchikPhone: 'zakazchik_phone', zakazchikOkpo: 'zakazchik_okpo',
+    investorName: 'investor_name', investorAddress: 'investor_address', investorOkpo: 'investor_okpo',
+    okdp: 'okdp',
+  };
+  (Object.keys(map) as (keyof ActFormFields)[]).forEach((k) => {
+    if (fields[k]) qs.set(map[k], fields[k]);
+  });
+  return qs.toString();
+}
+
 export const API = {
   auth: {
     register: () => `${BASE}/api/v1/auth/register`,
@@ -143,29 +187,12 @@ export const API = {
     toggleActive: (id: number) => `${BASE}/api/v1/employees/${id}/toggle-active`,
   },
   actForms: {
-    profile: (clientId: string) => `${BASE}/api/v1/act-forms/profile?client_id=${encodeURIComponent(clientId)}`,
-    ks2: (clientId: string, refKey: string, params: {
-      object?: string; contractNumber?: string; contractDate?: string; periodFrom?: string; periodTo?: string;
-    } = {}) => {
-      const qs = new URLSearchParams({ client_id: clientId });
-      if (params.object)         qs.set('object', params.object);
-      if (params.contractNumber) qs.set('contract_number', params.contractNumber);
-      if (params.contractDate)   qs.set('contract_date', params.contractDate);
-      if (params.periodFrom)     qs.set('period_from', params.periodFrom);
-      if (params.periodTo)       qs.set('period_to', params.periodTo);
-      return `${BASE}/api/v1/act-forms/${encodeURIComponent(refKey)}/ks2?${qs.toString()}`;
-    },
-    ks3: (clientId: string, refKey: string, params: {
-      object?: string; contractNumber?: string; contractDate?: string; periodFrom?: string; periodTo?: string;
-    } = {}) => {
-      const qs = new URLSearchParams({ client_id: clientId });
-      if (params.object)         qs.set('object', params.object);
-      if (params.contractNumber) qs.set('contract_number', params.contractNumber);
-      if (params.contractDate)   qs.set('contract_date', params.contractDate);
-      if (params.periodFrom)     qs.set('period_from', params.periodFrom);
-      if (params.periodTo)       qs.set('period_to', params.periodTo);
-      return `${BASE}/api/v1/act-forms/${encodeURIComponent(refKey)}/ks3?${qs.toString()}`;
-    },
+    fieldValues: (clientId: string, fields: string[]) =>
+      `${BASE}/api/v1/act-forms/field-values?client_id=${encodeURIComponent(clientId)}&fields=${encodeURIComponent(fields.join(','))}`,
+    ks2: (clientId: string, refKey: string, fields: ActFormFields) =>
+      `${BASE}/api/v1/act-forms/${encodeURIComponent(refKey)}/ks2?${actFieldsToQuery(clientId, fields)}`,
+    ks3: (clientId: string, refKey: string, fields: ActFormFields) =>
+      `${BASE}/api/v1/act-forms/${encodeURIComponent(refKey)}/ks3?${actFieldsToQuery(clientId, fields)}`,
   },
   docSchedules: {
     list:   (clientId: string, counterpartyKey?: string) => {

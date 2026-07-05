@@ -8,6 +8,9 @@ import { ScheduleModal, DocSchedule } from '@/components/schedule/ScheduleModal'
 import { SendNowModal } from '@/components/schedule/SendNowModal';
 import { ActPrintModal } from '@/components/schedule/ActPrintModal';
 import { TelegramIcon } from '@/components/icons/TelegramIcon';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 export interface ApiDocItem {
   line_number: string;
@@ -231,20 +234,36 @@ export function InvoicePanel({ doc, clientId, onClose, onScheduleCreated }: Prop
         </div>
 
         {/* Footer actions */}
-        <div className="flex-shrink-0 border-t border-slate-100 px-5 py-3 space-y-2">
+        <div className="flex-shrink-0 border-t border-slate-100 px-5 py-3">
           <div className="flex gap-2">
-            {/* Print form */}
-            <a
-              href={API.documents.print(clientId, doc.id)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
-                         border border-slate-200 bg-slate-50 text-slate-700 text-sm font-medium
-                         hover:bg-slate-100 hover:border-slate-300 transition-colors"
-            >
-              <Printer className="h-4 w-4" />
-              Печатная форма
-            </a>
+            {/* Print */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
+                             border border-slate-200 bg-slate-50 text-slate-700 text-sm font-medium
+                             hover:bg-slate-100 hover:border-slate-300 transition-colors"
+                >
+                  <Printer className="h-4 w-4" />
+                  Печать
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => window.open(API.documents.print(clientId, doc.id), '_blank')}>
+                  Печатная форма
+                </DropdownMenuItem>
+                {doc.type === 'SALE' && (
+                  <>
+                    <DropdownMenuItem onClick={() => setActPrintKind('ks2')}>
+                      КС-2 — Акт о приёмке работ
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActPrintKind('ks3')}>
+                      КС-3 — Справка о стоимости
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
             {/* Send now */}
             <button
               onClick={() => setSendNowOpen(true)}
@@ -266,28 +285,6 @@ export function InvoicePanel({ doc, clientId, onClose, onScheduleCreated }: Prop
               Расписание
             </button>
           </div>
-          {doc.type === 'SALE' && (
-            <div className="flex gap-2">
-              <button
-                onClick={() => setActPrintKind('ks2')}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
-                           border border-slate-200 bg-white text-slate-700 text-sm font-medium
-                           hover:bg-slate-50 hover:border-slate-300 transition-colors"
-              >
-                <Printer className="h-4 w-4" />
-                КС-2
-              </button>
-              <button
-                onClick={() => setActPrintKind('ks3')}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
-                           border border-slate-200 bg-white text-slate-700 text-sm font-medium
-                           hover:bg-slate-50 hover:border-slate-300 transition-colors"
-              >
-                <Printer className="h-4 w-4" />
-                КС-3
-              </button>
-            </div>
-          )}
         </div>
       </div>
 

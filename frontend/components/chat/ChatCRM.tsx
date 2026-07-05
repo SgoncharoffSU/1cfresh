@@ -351,11 +351,17 @@ function PendingChatView({ chatId, msgs, onAttach, onBack }: {
     if (!text) return;
     if (!demoMode) {
       try {
-        await fetch(API.telegram.send(), {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+        // apiFetch (not raw fetch) — this endpoint requires the accountant's auth
+        // token; without it the send silently 401s while the UI still showed the
+        // message as "sent".
+        const res = await apiFetch(API.telegram.send(), {
+          method: 'POST',
           body: JSON.stringify({ chat_id: chatId, text }),
         });
-      } catch {}
+        if (!res.ok) return; // leave the draft in place so it can be retried
+      } catch {
+        return;
+      }
     }
     setSent((prev) => [...prev, { id: `sent-${Date.now()}`, text, ts: new Date() }]);
     setDraft('');
@@ -575,23 +581,32 @@ export function ChatView({ group, onMarkDone, onBack, highlightIds, focusId }: {
 
     if (channel === 'TG' && tgChatId) {
       try {
-        const res = await fetch(API.telegram.send(), {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+        // apiFetch (not raw fetch) — this endpoint requires the accountant's auth
+        // token; without it the send silently 401s while the UI still showed the
+        // message as "sent".
+        const res = await apiFetch(API.telegram.send(), {
+          method: 'POST',
           body: JSON.stringify({ chat_id: tgChatId, text }),
         });
+        if (!res.ok) return; // leave the draft in place so it can be retried
         const data = await res.json();
         // Match the id the backend already stored for this send — avoids a duplicate
         // bubble once /telegram/messages or GET /chat/messages later returns the same row.
         if (data?.message_id) id = `sent-${data.message_id}-${tgChatId}`;
-      } catch {}
+      } catch {
+        return;
+      }
     }
     if (channel === 'PORTAL' && portalClientId) {
       try {
-        await apiFetch(API.portal.chatReply(), {
+        const res = await apiFetch(API.portal.chatReply(), {
           method: 'POST',
           body: JSON.stringify({ portal_client_id: portalClientId, text, sender_name: 'Бухгалтер' }),
         });
-      } catch {}
+        if (!res.ok) return;
+      } catch {
+        return;
+      }
     }
     addMessage({
       id, channel, senderId: 'u1', senderName: 'Бухгалтер',

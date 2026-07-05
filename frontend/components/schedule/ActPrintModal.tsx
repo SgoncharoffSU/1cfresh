@@ -73,26 +73,34 @@ export function ActPrintModal({ clientId, refKey, docNumber, kind, onClose }: Pr
   const [loading, setLoading]     = useState(true);
   const [printing, setPrinting]   = useState(false);
   const [error, setError]         = useState('');
+  const [contractFrom1c, setContractFrom1c] = useState(false);
 
   useEffect(() => {
     const backendNames = Object.values(HISTORY_FIELDS) as string[];
-    apiFetch(API.actForms.fieldValues(clientId, backendNames))
-      .then((r) => r.ok ? r.json() : {})
-      .then((data: Record<string, string[]>) => {
-        setSuggestions(data);
-        // Pre-fill each field with its most-recently-used value, still fully editable.
+    Promise.all([
+      apiFetch(API.actForms.fieldValues(clientId, backendNames)).then((r) => r.ok ? r.json() : {}),
+      apiFetch(API.actForms.prefill(clientId, refKey)).then((r) => r.ok ? r.json() : {}),
+    ])
+      .then(([values, prefill]: [Record<string, string[]>, { contract_number?: string; contract_date?: string }]) => {
+        setSuggestions(values);
         setFields((prev) => {
           const next = { ...prev };
+          // Pre-fill each field with its most-recently-used value, still fully editable.
           (Object.keys(HISTORY_FIELDS) as (keyof ActFormFields)[]).forEach((key) => {
             const backendName = HISTORY_FIELDS[key]!;
-            const first = data[backendName]?.[0];
+            const first = values[backendName]?.[0];
             if (first) next[key] = first;
           });
+          // Договор from 1C (if this document is linked to one) is authoritative —
+          // overrides whatever history suggested.
+          if (prefill.contract_number) next.contractNumber = prefill.contract_number;
+          if (prefill.contract_date)   next.contractDate   = prefill.contract_date;
           return next;
         });
+        setContractFrom1c(!!(prefill.contract_number || prefill.contract_date));
       })
       .finally(() => setLoading(false));
-  }, [clientId]);
+  }, [clientId, refKey]);
 
   function set<K extends keyof ActFormFields>(key: K, value: string) {
     setFields((p) => ({ ...p, [key]: value }));
@@ -170,7 +178,9 @@ export function ActPrintModal({ clientId, refKey, docNumber, kind, onClose }: Pr
                   {bound('objectName', 'Наименование объекта')}
                 </div>
                 <div>
-                  <label className={labelCls}>Договор №</label>
+                  <label className={labelCls}>
+                    Договор №{contractFrom1c && <span className="text-emerald-600 normal-case font-normal ml-1">· из 1С</span>}
+                  </label>
                   {bound('contractNumber')}
                 </div>
                 <div>

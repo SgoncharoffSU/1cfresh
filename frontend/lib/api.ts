@@ -189,6 +189,8 @@ export const API = {
   actForms: {
     fieldValues: (clientId: string, fields: string[]) =>
       `${BASE}/api/v1/act-forms/field-values?client_id=${encodeURIComponent(clientId)}&fields=${encodeURIComponent(fields.join(','))}`,
+    prefill: (clientId: string, refKey: string) =>
+      `${BASE}/api/v1/act-forms/${encodeURIComponent(refKey)}/prefill?client_id=${encodeURIComponent(clientId)}`,
     ks2: (clientId: string, refKey: string, fields: ActFormFields) =>
       `${BASE}/api/v1/act-forms/${encodeURIComponent(refKey)}/ks2?${actFieldsToQuery(clientId, fields)}`,
     ks3: (clientId: string, refKey: string, fields: ActFormFields) =>

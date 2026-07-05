@@ -43,6 +43,7 @@ class OneCDocument(Base):
     counterparty_key  = Column(String(36))
     counterparty_name = Column(String(500))
     counterparty_inn  = Column(String(20))
+    contract_key      = Column(String(36), nullable=True)  # ДоговорКонтрагента_Key — links to a CONTRACT-type row
     amount            = Column(Numeric(15, 2), default=0)
     is_posted         = Column(Boolean, default=False)
     deletion_mark     = Column(Boolean, default=False, nullable=False)

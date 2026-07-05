@@ -13,7 +13,9 @@ deliberately NOT remembered — a date range is unique to each act by definition
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from datetime import datetime
 from typing import Any, Optional
 
@@ -26,7 +28,9 @@ from app.api.deps import get_client_tenant
 from app.db.database import get_db
 from app.models.act_field_value import ClientActFieldValue
 from app.models.client_contact import ClientContact
-from app.models.tenant import OneCDocument
+from app.models.tenant import OneCDocument, Tenant
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/act-forms", tags=["act-forms"])
 
@@ -64,6 +68,25 @@ async def get_field_values(
     return result
 
 
+@router.get("/{ref_key}/prefill")
+async def get_prefill(
+    ref_key: str,
+    client_id: str,
+    tenant_id: int = Depends(get_client_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    """Договор №/от straight from 1C for this document, if it's linked to one —
+    authoritative, takes priority over the field-value history in the print modal."""
+    doc_res = await db.execute(
+        select(OneCDocument).where(OneCDocument.tenant_id == tenant_id, OneCDocument.ref_key == ref_key)
+    )
+    doc = doc_res.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Документ не найден")
+    contract_number, contract_date = await _resolve_contract(db, tenant_id, doc.contract_key)
+    return {"contract_number": contract_number, "contract_date": contract_date}
+
+
 async def _remember_fields(db: AsyncSession, client_id: str, values: dict[str, str]) -> None:
     for field_name, value in values.items():
         value = (value or "").strip()
@@ -99,31 +122,70 @@ def _fmt_date(d: Optional[datetime]) -> str:
 
 
 async def _resolve_item_names(db: AsyncSession, tenant_id: int, items: list[dict]) -> dict[str, str]:
-    """SALE items often lack Содержание (only Номенклатура_Key) — cross-reference this
-    tenant's INVOICE items, which do carry Содержание, by matching key. Same technique
-    contracts.py's list_nomenclature uses to merge catalog data from synced documents."""
+    """SALE items usually carry only Номенклатура_Key, no Содержание — 1C doesn't echo the
+    catalog name back on line items. Resolve it properly: live Catalog_Номенклатура lookup
+    (authoritative, same technique contracts.py's list_nomenclature uses), falling back to
+    cross-referencing this tenant's already-synced INVOICE items (which sometimes do carry
+    free-text Содержание) for anything the catalog doesn't cover."""
     keys = {it.get("Номенклатура_Key") for it in items if it.get("Номенклатура_Key") and not it.get("Содержание")}
     if not keys:
         return {}
+
+    name_by_key: dict[str, str] = {}
+
+    tenant = await db.get(Tenant, tenant_id)
+    if tenant and tenant.odata_login and tenant.odata_url:
+        try:
+            from app.services.onec_odata import OneCODataClient
+            client = OneCODataClient(login=tenant.odata_login, password=tenant.odata_password, base_url=tenant.odata_url)
+            catalog = await asyncio.get_running_loop().run_in_executor(None, client.get_nomenclature_catalog)
+            for it in catalog:
+                ref = it.get("Ref_Key", "")
+                name = (it.get("Description") or it.get("Наименование") or "").strip()
+                if ref in keys and name:
+                    name_by_key[ref] = name
+        except Exception as exc:
+            logger.warning("act_forms: nomenclature catalog lookup failed for tenant=%s: %s", tenant_id, exc)
+
+    remaining = keys - set(name_by_key)
+    if remaining:
+        res = await db.execute(
+            select(OneCDocument.items_json).where(
+                OneCDocument.tenant_id == tenant_id,
+                OneCDocument.doc_type == "INVOICE",
+                OneCDocument.items_json.isnot(None),
+            )
+        )
+        for (items_json,) in res.all():
+            try:
+                rows = json.loads(items_json)
+            except Exception:
+                continue
+            for row in rows:
+                k = row.get("Номенклатура_Key")
+                name = row.get("Содержание")
+                if k in remaining and name and k not in name_by_key:
+                    name_by_key[k] = name
+
+    return name_by_key
+
+
+async def _resolve_contract(db: AsyncSession, tenant_id: int, contract_key: Optional[str]) -> tuple[str, str]:
+    """Договор №/от, straight from the CONTRACT-type row 1C sync already stores locally
+    (Catalog_ДоговорыКонтрагентов) — no extra 1C call needed, just a local join."""
+    if not contract_key:
+        return "", ""
     res = await db.execute(
-        select(OneCDocument.items_json).where(
+        select(OneCDocument).where(
             OneCDocument.tenant_id == tenant_id,
-            OneCDocument.doc_type == "INVOICE",
-            OneCDocument.items_json.isnot(None),
+            OneCDocument.doc_type == "CONTRACT",
+            OneCDocument.ref_key == contract_key,
         )
     )
-    name_by_key: dict[str, str] = {}
-    for (items_json,) in res.all():
-        try:
-            rows = json.loads(items_json)
-        except Exception:
-            continue
-        for row in rows:
-            k = row.get("Номенклатура_Key")
-            name = row.get("Содержание")
-            if k in keys and name and k not in name_by_key:
-                name_by_key[k] = name
-    return name_by_key
+    contract = res.scalar_one_or_none()
+    if not contract:
+        return "", ""
+    return contract.number or "", _fmt_date(contract.date)
 
 
 async def _load_context(db: AsyncSession, tenant_id: int, client_id: str, ref_key: str):
@@ -185,7 +247,6 @@ _PAGE_STYLE = """
   .totals-row td { font-weight: bold; }
   .sign-block { margin-top: 24px; }
   .sign-line { display: inline-block; width: 220px; border-bottom: 1px solid #000; margin: 0 8px; }
-  .guid { font-size: 7pt; color: #999; margin-top: 14px; text-align: center; }
 </style>
 """
 
@@ -325,7 +386,6 @@ def _build_ks2_html(doc: OneCDocument, client: ClientContact, rows: list[dict], 
   <span style="font-size:8pt;color:#666">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(должность)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(подпись)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(расшифровка подписи)</span>
 </div>
 
-<div class="guid">1C GUID: {doc.ref_key}</div>
 </body></html>"""
 
 
@@ -338,6 +398,8 @@ async def print_ks2(
     db: AsyncSession = Depends(get_db),
 ):
     doc, client, rows = await _load_context(db, tenant_id, client_id, ref_key)
+    if not f.contract_number and not f.contract_date:
+        f.contract_number, f.contract_date = await _resolve_contract(db, tenant_id, doc.contract_key)
     await _remember_fields(db, client_id, f.as_remember_dict())
     await db.commit()
     return HTMLResponse(content=_build_ks2_html(doc, client, rows, f))
@@ -422,7 +484,6 @@ def _build_ks3_html(doc: OneCDocument, client: ClientContact, rows: list[dict], 
   <span style="font-size:8pt;color:#666">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(должность)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(подпись)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(расшифровка подписи)</span>
 </div>
 
-<div class="guid">1C GUID: {doc.ref_key}</div>
 </body></html>"""
 
 
@@ -435,6 +496,8 @@ async def print_ks3(
     db: AsyncSession = Depends(get_db),
 ):
     doc, client, rows = await _load_context(db, tenant_id, client_id, ref_key)
+    if not f.contract_number and not f.contract_date:
+        f.contract_number, f.contract_date = await _resolve_contract(db, tenant_id, doc.contract_key)
     await _remember_fields(db, client_id, f.as_remember_dict())
     await db.commit()
     return HTMLResponse(content=_build_ks3_html(doc, client, rows, f))

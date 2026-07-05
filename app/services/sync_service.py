@@ -82,6 +82,7 @@ def _upsert_documents(
         obj.counterparty_key  = ckey
         obj.counterparty_name = cname
         obj.counterparty_inn  = cinn
+        obj.contract_key      = d.get("ДоговорКонтрагента_Key") or None
         obj.amount            = Decimal(str(d.get("СуммаДокумента", 0) or 0))
         obj.is_posted         = bool(d.get("Posted", False))
         obj.deletion_mark     = bool(d.get("DeletionMark", False))

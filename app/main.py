@@ -1,9 +1,11 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.invoices import router as invoices_router
 from app.api.schedules import router as schedules_router
@@ -19,7 +21,9 @@ from app.api.billing import router as billing_router
 from app.api.superadmin import router as superadmin_router
 from app.api.employees import router as employees_router
 from app.api.act_forms import router as act_forms_router
+from app.api.branding import router as branding_router
 from app.routers.telegram import router as telegram_router
+from app.config import settings
 from app.db.database import Base, engine
 import app.models.firm               # noqa: F401
 import app.models.contract_schedule  # noqa: F401
@@ -36,6 +40,7 @@ import app.models.impersonation_log  # noqa: F401
 import app.models.abonent_counter    # noqa: F401
 import app.models.activity_log       # noqa: F401
 import app.models.act_field_value    # noqa: F401
+import app.models.client_branding    # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +83,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+
 app.include_router(auth_router,          prefix="/api/v1")
 app.include_router(invoices_router,      prefix="/api/v1")
 app.include_router(schedules_router,     prefix="/api/v1")
@@ -93,6 +101,7 @@ app.include_router(billing_router,       prefix="/api/v1")
 app.include_router(superadmin_router,    prefix="/api/v1")
 app.include_router(employees_router,     prefix="/api/v1")
 app.include_router(act_forms_router,     prefix="/api/v1")
+app.include_router(branding_router,      prefix="/api/v1")
 
 
 @app.get("/health")

@@ -6,7 +6,7 @@ import {
   ArrowLeft, MessageSquare, CheckSquare, FileText, Zap, ScrollText,
   MessageCircle, CheckCircle2, XCircle, Circle, Mail, RefreshCw, CalendarClock,
   Pencil, Trash2, ToggleLeft, ToggleRight, Globe, Eye, EyeOff, Copy, ExternalLink,
-  Printer,
+  Printer, Image as ImageIcon,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -25,7 +25,7 @@ import { Textarea }       from '@/components/ui/textarea';
 import { TelegramIcon }   from '@/components/icons/TelegramIcon';
 import { AiChatIcon }     from '@/components/icons/AiChatIcon';
 import { ChatMessage, IntegrationKey } from '@/types';
-import { API, apiFetch } from '@/lib/api';
+import { API, apiFetch, ClientBrandingOut } from '@/lib/api';
 import ContractsTab      from '@/components/clients/ContractsTab';
 import { ConnectOnecModal } from '@/components/clients/ConnectOnecModal';
 import { cn, formatTime, formatDate } from '@/lib/utils';
@@ -49,7 +49,7 @@ function ChBadge({ ch }: { ch: IntegrationKey }) {
 }
 
 // ─── Tabs ──────────────────────────────────────────────────────────────────────
-type Tab = 'chat' | 'tasks' | 'docs' | 'schedules' | 'integrations' | 'portal';
+type Tab = 'chat' | 'tasks' | 'docs' | 'schedules' | 'integrations' | 'portal' | 'branding';
 const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id:'chat',         label:'Чат',          icon:MessageSquare  },
   { id:'tasks',        label:'Задачи',       icon:CheckSquare    },
@@ -57,6 +57,7 @@ const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: st
   { id:'schedules',    label:'Расписания',   icon:CalendarClock  },
   { id:'integrations', label:'Интеграции',   icon:Zap            },
   { id:'portal',       label:'Портал',       icon:Globe          },
+  { id:'branding',     label:'Оформление',   icon:ImageIcon      },
 ];
 
 // ─── Chat tab — reuses the same ChatView as the Чаты page ─────────────────────
@@ -332,13 +333,15 @@ function DocsTab({ clientId }: { clientId: string }) {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [newIds,      setNewIds]      = useState<Set<string>>(new Set());
   const [printingAct, setPrintingAct] = useState<{ doc: ApiDocFull; kind: 'ks2' | 'ks3' } | null>(null);
+  const [counterpartyFilter, setCounterpartyFilter] = useState('');
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      // Server already scopes documents to this client's own 1C connection —
-      // no more client-side counterparty filtering needed (each client has
-      // their own 1C base now, so every returned doc is inherently theirs).
+      // Server scopes documents to this client's own 1C connection, but that
+      // 1C base can itself contain many of the client's own customers
+      // (counterparties) — the filter below lets the accountant narrow down
+      // to one of them.
       const res = await apiFetch(API.documents.list(clientId));
       if (res.ok) {
         const all: ApiDocFull[] = await res.json();
@@ -371,10 +374,22 @@ function DocsTab({ clientId }: { clientId: string }) {
     return () => clearInterval(id);
   }, [load]);
 
+  const counterparties = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const d of docs) {
+      if (d.counterparty?.id && !byId.has(d.counterparty.id)) {
+        byId.set(d.counterparty.id, d.counterparty.name || d.counterparty.id);
+      }
+    }
+    return Array.from(byId, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  }, [docs]);
+
   const filtered = useMemo(() => {
     const sub = DOC_SUB_TABS.find((s) => s.id === subTab);
-    return sub ? docs.filter((d) => d.type === sub.type) : docs;
-  }, [docs, subTab]);
+    let list = sub ? docs.filter((d) => d.type === sub.type) : docs;
+    if (counterpartyFilter) list = list.filter((d) => d.counterparty?.id === counterpartyFilter);
+    return list;
+  }, [docs, subTab, counterpartyFilter]);
 
   const total = useMemo(() => filtered.reduce((s, d) => s + d.amount, 0), [filtered]);
 
@@ -389,21 +404,35 @@ function DocsTab({ clientId }: { clientId: string }) {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex border-b border-slate-100 bg-white px-4 flex-shrink-0">
-        {DOC_SUB_TABS.map(({ id, label }) => (
-          <button
-            key={id}
-            onClick={() => setSubTab(id)}
-            className={cn(
-              'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors',
-              subTab === id
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-slate-500 hover:text-slate-700',
-            )}
+      <div className="flex items-center justify-between border-b border-slate-100 bg-white px-4 flex-shrink-0">
+        <div className="flex">
+          {DOC_SUB_TABS.map(({ id, label }) => (
+            <button
+              key={id}
+              onClick={() => setSubTab(id)}
+              className={cn(
+                'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors',
+                subTab === id
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {counterparties.length > 1 && (
+          <select
+            value={counterpartyFilter}
+            onChange={(e) => setCounterpartyFilter(e.target.value)}
+            className="text-xs border border-slate-200 rounded-lg px-2 py-1 text-slate-600 max-w-[220px]"
           >
-            {label}
-          </button>
-        ))}
+            <option value="">Все контрагенты</option>
+            {counterparties.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {subTab === 'contracts' ? (
@@ -424,6 +453,9 @@ function DocsTab({ clientId }: { clientId: string }) {
                 <tr>
                   <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Номер</th>
                   <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Дата</th>
+                  {counterparties.length > 1 && (
+                    <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Контрагент</th>
+                  )}
                   <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Статус</th>
                   <th className="text-right px-4 py-2.5 font-medium text-muted-foreground">Сумма</th>
                   <th className="px-3 py-2.5"></th>
@@ -451,6 +483,11 @@ function DocsTab({ clientId }: { clientId: string }) {
                           })
                         : '—'}
                     </td>
+                    {counterparties.length > 1 && (
+                      <td className="px-3 py-3 text-slate-600 max-w-[200px] truncate" title={doc.counterparty?.name}>
+                        {doc.counterparty?.name || '—'}
+                      </td>
+                    )}
                     <td className="px-3 py-3">
                       <div className="flex flex-wrap gap-1">
                         {doc.deletion_mark && (
@@ -940,6 +977,130 @@ function PortalTab({ clientId }: { clientId: string }) {
   );
 }
 
+// ─── Branding tab — letterhead (logo/stamp/text) for self-generated print forms ─
+function BrandingTab({ clientId }: { clientId: string }) {
+  const [logoUrl,      setLogoUrl]      = useState<string | null>(null);
+  const [logoPosition, setLogoPosition] = useState<ClientBrandingOut['logo_position']>('top-left');
+  const [stampUrl,     setStampUrl]     = useState<string | null>(null);
+  const [customText,   setCustomText]   = useState('');
+  const [textPosition, setTextPosition] = useState<ClientBrandingOut['text_position']>('footer');
+  const [logoFile,     setLogoFile]     = useState<File | null>(null);
+  const [stampFile,    setStampFile]    = useState<File | null>(null);
+  const [loading,      setLoading]      = useState(true);
+  const [saving,       setSaving]       = useState(false);
+  const [saved,        setSaved]        = useState(false);
+  const [error,        setError]        = useState('');
+
+  useEffect(() => {
+    apiFetch(API.clients.branding(clientId))
+      .then((r) => r.ok ? r.json() : null)
+      .then((d: ClientBrandingOut | null) => {
+        if (!d) return;
+        setLogoUrl(d.logo_url);
+        setLogoPosition(d.logo_position);
+        setStampUrl(d.stamp_url);
+        setCustomText(d.custom_text);
+        setTextPosition(d.text_position);
+      })
+      .finally(() => setLoading(false));
+  }, [clientId]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const form = new FormData();
+      form.set('custom_text', customText);
+      form.set('logo_position', logoPosition);
+      form.set('text_position', textPosition);
+      if (logoFile)  form.set('logo', logoFile);
+      if (stampFile) form.set('stamp', stampFile);
+      const res = await apiFetch(API.clients.branding(clientId), { method: 'POST', body: form });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.detail ?? 'Ошибка сохранения');
+        return;
+      }
+      const d: ClientBrandingOut = await res.json();
+      setLogoUrl(d.logo_url);
+      setStampUrl(d.stamp_url);
+      setLogoFile(null);
+      setStampFile(null);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      setError('Ошибка соединения с сервером');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full gap-2 text-xs text-muted-foreground">
+        <RefreshCw className="h-4 w-4 animate-spin" />
+        <span>Загрузка…</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 space-y-6 overflow-y-auto h-full max-w-lg">
+      <div>
+        <h2 className="text-sm font-semibold text-slate-800">Оформление печатных форм</h2>
+        <p className="text-xs text-muted-foreground mt-1">
+          Логотип, печать организации с подписью и произвольный текст — добавляются в счета и акты КС-2/КС-3.
+        </p>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-slate-700">Логотип</label>
+          {logoUrl && !logoFile && (
+            <img src={logoUrl} alt="Логотип" className="h-12 border border-slate-100 rounded p-1 mb-1" />
+          )}
+          <input type="file" accept="image/png,image/jpeg,image/webp"
+            onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
+            className="text-xs" />
+          <select value={logoPosition} onChange={(e) => setLogoPosition(e.target.value as typeof logoPosition)}
+            className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 w-full mt-1.5">
+            <option value="top-left">Слева сверху</option>
+            <option value="top-center">По центру сверху</option>
+            <option value="top-right">Справа сверху</option>
+          </select>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-slate-700">Печать организации с подписью</label>
+          {stampUrl && !stampFile && (
+            <img src={stampUrl} alt="Печать" className="h-16 border border-slate-100 rounded p-1 mb-1" />
+          )}
+          <input type="file" accept="image/png,image/jpeg,image/webp"
+            onChange={(e) => setStampFile(e.target.files?.[0] ?? null)}
+            className="text-xs" />
+          <p className="text-[11px] text-slate-400">Изображение печати со скана — накладывается на подпись руководителя.</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-slate-700">Произвольный текст</label>
+          <Textarea value={customText} onChange={(e) => setCustomText(e.target.value)}
+            rows={3} className="text-xs" placeholder="Например, реквизиты для оплаты или благодарность за сотрудничество" />
+          <select value={textPosition} onChange={(e) => setTextPosition(e.target.value as typeof textPosition)}
+            className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 w-full mt-1.5">
+            <option value="header">Вверху документа</option>
+            <option value="footer">Внизу документа</option>
+          </select>
+        </div>
+
+        {error && <p className="text-xs text-red-600">{error}</p>}
+        <Button size="sm" onClick={handleSave} disabled={saving}>
+          {saving ? 'Сохранение…' : saved ? '✓ Сохранено' : 'Сохранить'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main ──────────────────────────────────────────────────────────────────────
 export function ClientDetail({ clientId }: { clientId: string }) {
   const router       = useRouter();
@@ -1014,6 +1175,7 @@ export function ClientDetail({ clientId }: { clientId: string }) {
         {activeTab === 'schedules'    && <SchedulesTab clientId={clientId} />}
         {activeTab === 'integrations' && <IntegrationsTab clientId={clientId} clientName={client.name} activeChannels={client.activeChannels} />}
         {activeTab === 'portal'       && <PortalTab clientId={clientId} />}
+        {activeTab === 'branding'     && <BrandingTab clientId={clientId} />}
       </div>
     </div>
   );

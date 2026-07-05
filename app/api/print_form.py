@@ -14,7 +14,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
-from app.models.tenant import OneCDocument
+from app.models.tenant import OneCDocument, Tenant
+from app.services.branding import load_branding_html
 
 router = APIRouter(prefix="/documents", tags=["print"])
 
@@ -105,7 +106,7 @@ def _num_to_words(n: float) -> str:
     return f"{rub_str.capitalize()} {rub_decl} {kop_str} {kop_decl}"
 
 
-def _build_html(doc: OneCDocument) -> str:
+def _build_html(doc: OneCDocument, branding: dict) -> str:
     items: list[dict] = []
     if doc.items_json:
         try:
@@ -246,6 +247,12 @@ def _build_html(doc: OneCDocument) -> str:
     margin-bottom: 3px;
   }}
   .guid {{ font-size: 7pt; color: #999; margin-top: 10px; text-align: center; }}
+
+  .branding-logo {{ margin-bottom: 6px; }}
+  .branding-logo img {{ max-height: 60px; max-width: 220px; }}
+  .branding-text {{ font-size: 9pt; color: #333; margin: 8px 0; white-space: pre-wrap; }}
+  .footer .sign-block {{ position: relative; }}
+  .branding-stamp {{ position: absolute; left: 20px; top: -15px; height: 90px; opacity: 0.85; pointer-events: none; }}
 </style>
 </head>
 <body>
@@ -253,6 +260,8 @@ def _build_html(doc: OneCDocument) -> str:
 <div class="no-print" style="margin-bottom:10px">
   <button class="print-btn" onclick="window.print()">🖨 Распечатать / Сохранить PDF</button>
 </div>
+
+{branding['logo_html']}
 
 <!-- Bank block placeholder -->
 <div class="bank-block">
@@ -270,6 +279,7 @@ def _build_html(doc: OneCDocument) -> str:
 
 <h2>СЧЁТ НА ОПЛАТУ № {doc.number}</h2>
 <div class="subtitle">от {doc_date}</div>
+{branding['text_header_html']}
 
 <div class="parties">
   <table>
@@ -313,8 +323,11 @@ def _build_html(doc: OneCDocument) -> str:
   {amount_words}
 </div>
 
+{branding['text_footer_html']}
+
 <div class="footer">
   <div class="sign-block">
+    {branding['stamp_html']}
     <div>Руководитель ________________</div>
     <div class="sign-line"></div>
     <div style="font-size:8pt;color:#666">подпись / расшифровка</div>
@@ -353,4 +366,7 @@ async def print_invoice(
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Документ не найден")
-    return HTMLResponse(content=_build_html(doc))
+
+    tenant = await db.get(Tenant, tenant_id)
+    branding = await load_branding_html(db, tenant.client_contact_id if tenant else None)
+    return HTMLResponse(content=_build_html(doc, branding))

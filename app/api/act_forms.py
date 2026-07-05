@@ -29,6 +29,7 @@ from app.db.database import get_db
 from app.models.act_field_value import ClientActFieldValue
 from app.models.client_contact import ClientContact
 from app.models.tenant import OneCDocument, Tenant
+from app.services.branding import load_branding_html
 
 logger = logging.getLogger(__name__)
 
@@ -245,8 +246,12 @@ _PAGE_STYLE = """
   table.items td.num { text-align: center; }
   table.items td.right { text-align: right; }
   .totals-row td { font-weight: bold; }
-  .sign-block { margin-top: 24px; }
+  .sign-block { margin-top: 24px; position: relative; }
   .sign-line { display: inline-block; width: 220px; border-bottom: 1px solid #000; margin: 0 8px; }
+  .branding-logo { margin-bottom: 6px; }
+  .branding-logo img { max-height: 60px; max-width: 220px; }
+  .branding-text { font-size: 9pt; color: #333; margin: 8px 0; white-space: pre-wrap; }
+  .branding-stamp { position: absolute; left: 0; top: -20px; height: 90px; opacity: 0.85; pointer-events: none; }
 </style>
 """
 
@@ -306,7 +311,7 @@ class FieldsQuery:
 
 # ─── КС-2 ───────────────────────────────────────────────────────────────────────
 
-def _build_ks2_html(doc: OneCDocument, client: ClientContact, rows: list[dict], f: FieldsQuery) -> str:
+def _build_ks2_html(doc: OneCDocument, client: ClientContact, rows: list[dict], f: FieldsQuery, branding: dict) -> str:
     items_html = ""
     total = 0.0
     for i, r in enumerate(rows, start=1):
@@ -330,12 +335,15 @@ def _build_ks2_html(doc: OneCDocument, client: ClientContact, rows: list[dict], 
 
 <div class="no-print"><button class="print-btn" onclick="window.print()">🖨 Распечатать / Сохранить PDF</button></div>
 
+{branding['logo_html']}
+
 <div class="hdr-right">
   Унифицированная форма № КС-2<br>
   Утверждена постановлением Госкомстата России<br>
   от 11.11.99 № 100
 </div>
 <div style="clear:both"></div>
+{branding['text_header_html']}
 
 <table class="parties">
   {_party_row("Инвестор", f.investor_name, f.investor_address, "", f.investor_okpo)}
@@ -377,7 +385,10 @@ def _build_ks2_html(doc: OneCDocument, client: ClientContact, rows: list[dict], 
   </tbody>
 </table>
 
+{branding['text_footer_html']}
+
 <div class="sign-block">
+  {branding['stamp_html']}
   Сдал <span class="sign-line"></span> <span class="sign-line"></span> <span class="sign-line"></span><br>
   <span style="font-size:8pt;color:#666">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(должность)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(подпись)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(расшифровка подписи)</span>
 </div>
@@ -400,14 +411,15 @@ async def print_ks2(
     doc, client, rows = await _load_context(db, tenant_id, client_id, ref_key)
     if not f.contract_number and not f.contract_date:
         f.contract_number, f.contract_date = await _resolve_contract(db, tenant_id, doc.contract_key)
+    branding = await load_branding_html(db, client_id)
     await _remember_fields(db, client_id, f.as_remember_dict())
     await db.commit()
-    return HTMLResponse(content=_build_ks2_html(doc, client, rows, f))
+    return HTMLResponse(content=_build_ks2_html(doc, client, rows, f, branding))
 
 
 # ─── КС-3 ───────────────────────────────────────────────────────────────────────
 
-def _build_ks3_html(doc: OneCDocument, client: ClientContact, rows: list[dict], f: FieldsQuery) -> str:
+def _build_ks3_html(doc: OneCDocument, client: ClientContact, rows: list[dict], f: FieldsQuery, branding: dict) -> str:
     total = sum(r["amount"] for r in rows) or float(doc.amount or 0)
     # Simplified per the accepted scope: all three cumulative columns equal this act's amount
     # (no running-total-across-acts calculation) — each справка stands alone.
@@ -419,12 +431,15 @@ def _build_ks3_html(doc: OneCDocument, client: ClientContact, rows: list[dict], 
 
 <div class="no-print"><button class="print-btn" onclick="window.print()">🖨 Распечатать / Сохранить PDF</button></div>
 
+{branding['logo_html']}
+
 <div class="hdr-right">
   Унифицированная форма № КС-3<br>
   Утверждена постановлением Госкомстата России<br>
   от 11.11.99 № 100
 </div>
 <div style="clear:both"></div>
+{branding['text_header_html']}
 
 <table class="parties">
   {_party_row("Инвестор", f.investor_name, f.investor_address, "", f.investor_okpo)}
@@ -475,11 +490,14 @@ def _build_ks3_html(doc: OneCDocument, client: ClientContact, rows: list[dict], 
   </tbody>
 </table>
 
+{branding['text_footer_html']}
+
 <div class="sign-block">
   Заказчик (Генподрядчик) <span class="sign-line"></span> <span class="sign-line"></span> <span class="sign-line"></span><br>
   <span style="font-size:8pt;color:#666">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(должность)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(подпись)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(расшифровка подписи)</span>
 </div>
 <div class="sign-block">
+  {branding['stamp_html']}
   Подрядчик (Субподрядчик) <span class="sign-line"></span> <span class="sign-line"></span> <span class="sign-line"></span><br>
   <span style="font-size:8pt;color:#666">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(должность)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(подпись)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(расшифровка подписи)</span>
 </div>
@@ -498,6 +516,7 @@ async def print_ks3(
     doc, client, rows = await _load_context(db, tenant_id, client_id, ref_key)
     if not f.contract_number and not f.contract_date:
         f.contract_number, f.contract_date = await _resolve_contract(db, tenant_id, doc.contract_key)
+    branding = await load_branding_html(db, client_id)
     await _remember_fields(db, client_id, f.as_remember_dict())
     await db.commit()
-    return HTMLResponse(content=_build_ks3_html(doc, client, rows, f))
+    return HTMLResponse(content=_build_ks3_html(doc, client, rows, f, branding))

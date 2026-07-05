@@ -40,6 +40,18 @@ const TITLE: Record<Props['kind'], string> = {
 const inputCls = "w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500";
 const labelCls = "block text-[11px] font-medium text-slate-600 mb-0.5";
 
+/** Print form fields store dates as "дд.мм.гггг" (that's what gets embedded verbatim into
+ * the printed HTML), but a native <input type="date"> calendar picker needs ISO "гггг-мм-дд".
+ * These convert between the two so the picker works without changing the stored/sent format. */
+function ruToIso(ru: string): string {
+  const m = ru.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
+}
+function isoToRu(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : '';
+}
+
 /** Text input with a native pick-from-history dropdown (datalist) — type freely or pick a
  * previously used value; new values get remembered server-side once the form is printed.
  * Defined outside ActPrintModal (not as an inline closure) so its identity is stable across
@@ -189,11 +201,11 @@ export function ActPrintModal({ clientId, refKey, docNumber, kind, onClose }: Pr
                 </div>
                 <div>
                   <label className={labelCls}>Период с</label>
-                  <input className={inputCls} type="text" placeholder="дд.мм.гггг" value={fields.periodFrom} onChange={(e) => set('periodFrom', e.target.value)} />
+                  <input className={inputCls} type="date" value={ruToIso(fields.periodFrom)} onChange={(e) => set('periodFrom', isoToRu(e.target.value))} />
                 </div>
                 <div>
                   <label className={labelCls}>Период по</label>
-                  <input className={inputCls} type="text" placeholder="дд.мм.гггг" value={fields.periodTo} onChange={(e) => set('periodTo', e.target.value)} />
+                  <input className={inputCls} type="date" value={ruToIso(fields.periodTo)} onChange={(e) => set('periodTo', isoToRu(e.target.value))} />
                 </div>
               </div>
             </div>

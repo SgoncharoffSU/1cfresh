@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     SMTP_FROM: str
 
     PDF_STORAGE_PATH: str = "./pdfs"
+    UPLOAD_DIR: str = "uploads"
 
     TELEGRAM_BOT_TOKEN: str = ""   # Set via .env — get from @BotFather
     TELEGRAM_CHAT_ID:   str = ""   # Default chat to notify (optional)

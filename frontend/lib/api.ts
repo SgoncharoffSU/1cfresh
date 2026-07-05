@@ -8,7 +8,9 @@ const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://159.194.225.55:8018';
 export async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const token = getAuthToken();
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    // FormData bodies need the browser to set their own multipart boundary —
+    // an explicit Content-Type here would break that.
+    ...(init.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(init.headers as Record<string, string> ?? {}),
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -56,6 +58,16 @@ export interface ActFormFields {
   investorAddress:    string;
   investorOkpo:       string;
   okdp:               string;
+}
+
+/** Letterhead branding for a client's self-generated print forms — see
+ * app/api/branding.py's `_out()` on the backend for the matching shape. */
+export interface ClientBrandingOut {
+  logo_url:      string | null;
+  logo_position: 'top-left' | 'top-center' | 'top-right';
+  stamp_url:     string | null;
+  custom_text:   string;
+  text_position: 'header' | 'footer';
 }
 
 export const EMPTY_ACT_FORM_FIELDS: ActFormFields = {
@@ -130,6 +142,7 @@ export const API = {
     setPortalCreds:   (id: string) => `${BASE}/api/v1/clients/${encodeURIComponent(id)}/portal-credentials`,
     merge:            () => `${BASE}/api/v1/clients/merge`,
     onecConnect:      () => `${BASE}/api/v1/clients/onec-connect`,
+    branding:         (id: string) => `${BASE}/api/v1/clients/${encodeURIComponent(id)}/branding`,
   },
   chat: {
     messages:     () => `${BASE}/api/v1/chat/messages`,

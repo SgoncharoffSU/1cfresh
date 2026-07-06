@@ -630,3 +630,102 @@ async def print_service_act(
     contract_number, contract_date = await _resolve_contract(db, tenant_id, doc.contract_key)
     branding = await load_branding_html(db, client_id)
     return HTMLResponse(content=_build_service_act_html(doc, client, rows, vat_total, contract_number, contract_date, branding))
+
+
+# ─── Накладная (простая) ────────────────────────────────────────────────────────
+# Same shape as the service act (no strict government layout for a plain delivery
+# note either) — just goods-appropriate wording ("отпустил"/"получил" instead of
+# "исполнитель"/"заказчик"). For a fully unified goods-transfer form see ТОРГ-12
+# in tax_forms.py — this one is the lightweight alternative for when that's overkill.
+
+def _build_nakladnaya_html(doc: OneCDocument, client: ClientContact, rows: list[dict], vat_total: float,
+                            contract_number: str, contract_date: str, branding: dict) -> str:
+    items_html = ""
+    total = 0.0
+    for i, r in enumerate(rows, start=1):
+        items_html += f"""
+        <tr>
+          <td class="num">{i}</td>
+          <td>{r['name']}</td>
+          <td class="num">шт</td>
+          <td class="num">{_fmt(r['qty'])}</td>
+          <td class="right">{_fmt(r['price'])}</td>
+          <td class="right">{_fmt(r['amount'])}</td>
+        </tr>"""
+        total += r["amount"]
+    if not items_html:
+        items_html = '<tr><td colspan="6" class="num" style="color:#999">Позиции не загружены</td></tr>'
+
+    grand_total = total + vat_total
+    vat_note = f"в т.ч. НДС {_fmt(vat_total)} ₽" if vat_total else "НДС не облагается"
+    amount_words = _num_to_words(grand_total)
+
+    return f"""<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8">
+<title>Накладная № {doc.number}</title>{_PAGE_STYLE}</head><body>
+
+<div class="no-print"><button class="print-btn" onclick="window.print()">🖨 Распечатать / Сохранить PDF</button></div>
+
+{branding['logo_html']}
+
+<div class="title">НАКЛАДНАЯ № {doc.number} от {_fmt_date(doc.date)}</div>
+{branding['text_header_html']}
+
+<table class="parties">
+  {_party_row("Поставщик", client.name, "", "", "")}
+  {_party_row("Получатель", doc.counterparty_name, "", "", doc.counterparty_inn or "")}
+  <tr><td class="label">Договор №</td><td class="fill" colspan="3">{contract_number or "—"} от {contract_date or "—"}</td></tr>
+</table>
+
+<table class="items">
+  <thead>
+    <tr>
+      <th style="width:30px">№ п/п</th>
+      <th>Наименование товара</th>
+      <th style="width:60px">Ед. изм.</th>
+      <th style="width:70px">Количество</th>
+      <th style="width:90px">Цена, ₽</th>
+      <th style="width:100px">Сумма, ₽</th>
+    </tr>
+  </thead>
+  <tbody>
+    {items_html}
+    <tr class="totals-row"><td colspan="5" style="text-align:right">Итого без НДС</td><td class="right">{_fmt(total)}</td></tr>
+    <tr class="totals-row"><td colspan="5" style="text-align:right">Всего к оплате ({vat_note})</td><td class="right">{_fmt(grand_total)}</td></tr>
+  </tbody>
+</table>
+
+<div class="amount-words" style="margin:6px 0">{amount_words}</div>
+
+{branding['text_footer_html']}
+
+<div class="sign-block">
+  {branding['stamp_html']}
+  Отпуск груза произвёл <span class="sign-line"></span> <span class="sign-line"></span><br>
+  <span style="font-size:8pt;color:#666">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(должность, подпись)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(расшифровка подписи)</span>
+</div>
+<div class="sign-block">
+  Груз получил <span class="sign-line"></span> <span class="sign-line"></span><br>
+  <span style="font-size:8pt;color:#666">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(должность, подпись)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(расшифровка подписи)</span>
+</div>
+
+</body></html>"""
+
+
+@router.get("/{ref_key}/nakladnaya", response_class=HTMLResponse)
+async def print_nakladnaya(
+    ref_key: str,
+    client_id: str,
+    tenant_id: int = Depends(get_client_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    doc, client, rows = await _load_context(db, tenant_id, client_id, ref_key)
+    vat_total = 0.0
+    if doc.items_json:
+        try:
+            vat_total = sum(float(it.get("СуммаНДС", 0) or 0) for it in json.loads(doc.items_json))
+        except Exception:
+            pass
+    contract_number, contract_date = await _resolve_contract(db, tenant_id, doc.contract_key)
+    branding = await load_branding_html(db, client_id)
+    return HTMLResponse(content=_build_nakladnaya_html(doc, client, rows, vat_total, contract_number, contract_date, branding))

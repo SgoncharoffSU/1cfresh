@@ -128,6 +128,10 @@ export const API = {
       `${BASE}/api/v1/tax-forms/${refKey}/schet-faktura?client_id=${encodeURIComponent(clientId)}`,
     serviceAct:   (clientId: string, refKey: string) =>
       `${BASE}/api/v1/act-forms/${refKey}/service-act?client_id=${encodeURIComponent(clientId)}`,
+    nakladnaya:   (clientId: string, refKey: string) =>
+      `${BASE}/api/v1/act-forms/${refKey}/nakladnaya?client_id=${encodeURIComponent(clientId)}`,
+    torg12:       (clientId: string, refKey: string) =>
+      `${BASE}/api/v1/tax-forms/${refKey}/torg12?client_id=${encodeURIComponent(clientId)}`,
   },
   portal: {
     setCredentials: () => `${BASE}/api/v1/portal/set-credentials`,

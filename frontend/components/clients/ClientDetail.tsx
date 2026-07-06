@@ -543,9 +543,11 @@ function DocsTab({ clientId }: { clientId: string }) {
                             </button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={() => window.open(API.documents.print(clientId, doc.id), '_blank')}>
-                              Печатная форма
-                            </DropdownMenuItem>
+                            {doc.type !== 'SALE' && doc.type !== 'FACTURA' && (
+                              <DropdownMenuItem onClick={() => window.open(API.documents.print(clientId, doc.id), '_blank')}>
+                                Печатная форма
+                              </DropdownMenuItem>
+                            )}
                             {doc.type === 'SALE' && (
                               <>
                                 <DropdownMenuItem onClick={() => setPrintingAct({ doc, kind: 'ks2' })}>
@@ -557,13 +559,21 @@ function DocsTab({ clientId }: { clientId: string }) {
                                 <DropdownMenuItem onClick={() => openAuthedPrintForm(API.documents.upd(clientId, doc.id))}>
                                   УПД
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => openAuthedPrintForm(API.documents.schetFaktura(clientId, doc.id))}>
-                                  Счёт-фактура
-                                </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => openAuthedPrintForm(API.documents.serviceAct(clientId, doc.id))}>
                                   Акт об оказании услуг
                                 </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => openAuthedPrintForm(API.documents.nakladnaya(clientId, doc.id))}>
+                                  Накладная
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => openAuthedPrintForm(API.documents.torg12(clientId, doc.id))}>
+                                  ТОРГ-12
+                                </DropdownMenuItem>
                               </>
+                            )}
+                            {doc.type === 'FACTURA' && (
+                              <DropdownMenuItem onClick={() => openAuthedPrintForm(API.documents.schetFaktura(clientId, doc.id))}>
+                                Счёт-фактура
+                              </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>

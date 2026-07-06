@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.act_forms import _fmt, _fmt_date, _resolve_item_names
 from app.api.deps import get_client_tenant
-from app.api.print_form import VAT_LABEL
+from app.api.print_form import VAT_LABEL, _num_to_words
 from app.db.database import get_db
 from app.models.client_contact import ClientContact
 from app.models.tenant import OneCDocument, Tenant
@@ -45,6 +45,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tax-forms", tags=["tax-forms"])
 
 _SALE_ENTITY = "Document_РеализацияТоваровУслуг"
+_ENTITY_BY_DOC_TYPE = {
+    "SALE":    _SALE_ENTITY,
+    "FACTURA": "Document_СчетФактураВыданный",
+    "INVOICE": "Document_СчетНаОплатуПокупателю",
+}
 
 
 async def _load_tax_context(db: AsyncSession, tenant_id: int, client_id: str, ref_key: str):
@@ -82,8 +87,9 @@ async def _load_tax_context(db: AsyncSession, tenant_id: int, client_id: str, re
     return doc, client, rows
 
 
-async def _resolve_seller(tenant: Tenant, ref_key: str) -> dict:
-    return await resolve_seller(tenant, ref_key, _SALE_ENTITY)
+async def _resolve_seller(tenant: Tenant, ref_key: str, doc_type: str = "SALE") -> dict:
+    entity = _ENTITY_BY_DOC_TYPE.get(doc_type, _SALE_ENTITY)
+    return await resolve_seller(tenant, ref_key, entity)
 
 
 _PAGE_STYLE = """
@@ -258,7 +264,7 @@ async def print_schet_faktura(
 ):
     doc, client, rows = await _load_tax_context(db, tenant_id, client_id, ref_key)
     tenant = await db.get(Tenant, tenant_id)
-    seller = await _resolve_seller(tenant, ref_key)
+    seller = await _resolve_seller(tenant, ref_key, doc.doc_type)
     contract_number, contract_date = "", ""
     if doc.contract_key:
         from app.api.act_forms import _resolve_contract
@@ -345,3 +351,128 @@ async def print_upd(
         contract_number, contract_date = await _resolve_contract(db, tenant_id, doc.contract_key)
     branding = await load_branding_html(db, client_id)
     return HTMLResponse(content=_build_upd_html(doc, client, rows, seller, contract_number, contract_date, branding))
+
+
+# ─── ТОРГ-12 ─────────────────────────────────────────────────────────────────────
+# Unified goods-transfer form (Постановление Госкомстата №132 от 25.12.1998) — still
+# valid as a paper/printed primary document; only its *electronic ЭДО exchange
+# format* was retired from 2026-01-01 (Приказ ФНС №ЕД-7-26/28@), which doesn't
+# affect a self-rendered printable page like this one. Physical-goods-specific
+# columns 1С doesn't give us here (упаковка, масса брутто/нетто, места) render as
+# "—" rather than being guessed — same treatment as ТН ВЭД/ГТД/страна on the
+# счёт-фактура table above.
+
+def _build_torg12_html(doc: OneCDocument, client: ClientContact, rows: list[dict], seller: dict,
+                        contract_number: str, contract_date: str, branding: dict) -> str:
+    body = ""
+    subtotal = vat_total = 0.0
+    for i, r in enumerate(rows, start=1):
+        subtotal += r["amount"]
+        vat_total += r["vat_amount"]
+        body += f"""
+        <tr>
+          <td class="num">{i}</td>
+          <td>{r['name']}</td>
+          <td class="num">—</td>
+          <td class="num">шт</td>
+          <td class="num">—</td>
+          <td class="num">—</td>
+          <td class="num">—</td>
+          <td class="num">{_fmt(r['qty'])}</td>
+          <td class="right">{_fmt(r['price'])}</td>
+          <td class="right">{_fmt(r['amount'])}</td>
+          <td class="num">{_vat_label(r['vat_rate'])}</td>
+          <td class="right">{_fmt(r['vat_amount'])}</td>
+          <td class="right">{_fmt(r['amount'] + r['vat_amount'])}</td>
+        </tr>"""
+    if not body:
+        body = '<tr><td colspan="13" class="num" style="color:#999">Позиции не загружены</td></tr>'
+    grand_total = subtotal + vat_total
+
+    return f"""<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8">
+<title>ТОРГ-12 № {doc.number}</title>{_PAGE_STYLE}</head><body>
+
+<div class="no-print"><button class="print-btn" onclick="window.print()">🖨 Распечатать / Сохранить PDF</button></div>
+
+{branding['logo_html']}
+
+<div class="title">ТОВАРНАЯ НАКЛАДНАЯ № {doc.number} от {_fmt_date(doc.date)}</div>
+<p class="small" style="text-align:center">Унифицированная форма № ТОРГ-12 (Постановление Госкомстата России от 25.12.1998 № 132)</p>
+{branding['text_header_html']}
+
+<table class="hdr">
+  <tr><td class="label">Грузоотправитель:</td><td class="fill" colspan="3">{seller['name'] or client.name} (он же поставщик)</td></tr>
+  <tr><td class="label">Грузополучатель:</td><td class="fill" colspan="3">{doc.counterparty_name or "—"} (он же плательщик)</td></tr>
+  <tr><td class="label">Поставщик:</td><td class="fill">{seller['name'] or client.name}</td>
+      <td class="label">ИНН/КПП:</td><td class="fill">{seller['inn'] or '—'} / {seller['kpp'] or '—'}</td></tr>
+  <tr><td class="label">Плательщик:</td><td class="fill">{doc.counterparty_name or "—"}</td>
+      <td class="label">ИНН:</td><td class="fill">{doc.counterparty_inn or '—'}</td></tr>
+  <tr><td class="label">Основание — договор №:</td><td class="fill">{contract_number or "—"}</td>
+      <td class="label">от:</td><td class="fill">{contract_date or "—"}</td></tr>
+  <tr><td class="label">Транспортная накладная №:</td><td class="fill">—</td>
+      <td class="label">от:</td><td class="fill">—</td></tr>
+</table>
+
+<table class="items">
+  <thead>
+    <tr>
+      <th>№</th><th>Товар</th><th>Код</th><th>Ед. изм.</th><th>Вид упак.</th>
+      <th>Мест</th><th>Масса брутто</th><th>Кол-во</th><th>Цена</th>
+      <th>Сумма без НДС</th><th>Ставка НДС</th><th>Сумма НДС</th><th>Сумма с НДС</th>
+    </tr>
+  </thead>
+  <tbody>
+    {body}
+    <tr class="totals-row">
+      <td colspan="9" style="text-align:right">Всего по накладной</td>
+      <td class="right">{_fmt(subtotal)}</td>
+      <td class="num">x</td>
+      <td class="right">{_fmt(vat_total)}</td>
+      <td class="right">{_fmt(grand_total)}</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="small">Всего мест: — &nbsp;&nbsp; Масса груза (нетто): — &nbsp;&nbsp; Масса груза (брутто): —</p>
+<p style="margin:6px 0">{_num_to_words(grand_total)}</p>
+
+{branding['text_footer_html']}
+
+<div class="sign-block">
+  {branding['stamp_html']}
+  Отпуск груза разрешил <span class="sign-line"></span> {seller['director_name'] or ''}<br>
+  <span class="small">(должность, подпись, расшифровка подписи)</span>
+</div>
+<div class="sign-block">
+  Главный (старший) бухгалтер <span class="sign-line"></span><br>
+  <span class="small">(подпись, расшифровка подписи)</span>
+</div>
+<div class="sign-block">
+  Отпуск груза произвёл <span class="sign-line"></span><br>
+  <span class="small">(подпись, расшифровка подписи) &nbsp;&nbsp; М.П.</span>
+</div>
+<div class="sign-block">
+  Груз принял / Груз получил грузополучатель <span class="sign-line"></span><br>
+  <span class="small">(должность, подпись, расшифровка подписи) &nbsp;&nbsp; М.П.</span>
+</div>
+
+</body></html>"""
+
+
+@router.get("/{ref_key}/torg12", response_class=HTMLResponse)
+async def print_torg12(
+    ref_key: str,
+    client_id: str,
+    tenant_id: int = Depends(get_client_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    doc, client, rows = await _load_tax_context(db, tenant_id, client_id, ref_key)
+    tenant = await db.get(Tenant, tenant_id)
+    seller = await _resolve_seller(tenant, ref_key, doc.doc_type)
+    contract_number, contract_date = "", ""
+    if doc.contract_key:
+        from app.api.act_forms import _resolve_contract
+        contract_number, contract_date = await _resolve_contract(db, tenant_id, doc.contract_key)
+    branding = await load_branding_html(db, client_id)
+    return HTMLResponse(content=_build_torg12_html(doc, client, rows, seller, contract_number, contract_date, branding))

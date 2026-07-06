@@ -21,6 +21,7 @@ from app.api.billing import router as billing_router
 from app.api.superadmin import router as superadmin_router
 from app.api.employees import router as employees_router
 from app.api.act_forms import router as act_forms_router
+from app.api.tax_forms import router as tax_forms_router
 from app.api.branding import router as branding_router
 from app.routers.telegram import router as telegram_router
 from app.config import settings
@@ -101,6 +102,7 @@ app.include_router(billing_router,       prefix="/api/v1")
 app.include_router(superadmin_router,    prefix="/api/v1")
 app.include_router(employees_router,     prefix="/api/v1")
 app.include_router(act_forms_router,     prefix="/api/v1")
+app.include_router(tax_forms_router,     prefix="/api/v1")
 app.include_router(branding_router,      prefix="/api/v1")
 
 

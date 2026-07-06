@@ -537,6 +537,15 @@ function DocsTab({ clientId }: { clientId: string }) {
                                 <DropdownMenuItem onClick={() => setPrintingAct({ doc, kind: 'ks3' })}>
                                   КС-3 — Справка о стоимости
                                 </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => window.open(API.documents.upd(clientId, doc.id), '_blank')}>
+                                  УПД
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => window.open(API.documents.schetFaktura(clientId, doc.id), '_blank')}>
+                                  Счёт-фактура
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => window.open(API.documents.serviceAct(clientId, doc.id), '_blank')}>
+                                  Акт об оказании услуг
+                                </DropdownMenuItem>
                               </>
                             )}
                           </DropdownMenuContent>

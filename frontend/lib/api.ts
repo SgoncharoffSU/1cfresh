@@ -122,6 +122,12 @@ export const API = {
       `${BASE}/api/v1/documents/${refKey}/print?client_id=${encodeURIComponent(clientId)}`,
     sendNow: (clientId: string, refKey: string) =>
       `${BASE}/api/v1/documents/${refKey}/send-now?client_id=${encodeURIComponent(clientId)}`,
+    upd:          (clientId: string, refKey: string) =>
+      `${BASE}/api/v1/tax-forms/${refKey}/upd?client_id=${encodeURIComponent(clientId)}`,
+    schetFaktura: (clientId: string, refKey: string) =>
+      `${BASE}/api/v1/tax-forms/${refKey}/schet-faktura?client_id=${encodeURIComponent(clientId)}`,
+    serviceAct:   (clientId: string, refKey: string) =>
+      `${BASE}/api/v1/act-forms/${refKey}/service-act?client_id=${encodeURIComponent(clientId)}`,
   },
   portal: {
     setCredentials: () => `${BASE}/api/v1/portal/set-credentials`,

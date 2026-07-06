@@ -58,6 +58,9 @@ export function BatchPrintModal({ clientId, chainDocs, triggerDocId, onClose }: 
   const [checked, setChecked] = useState<Record<string, boolean>>(
     () => Object.fromEntries(entries.map((e) => [e.key, e.defaultChecked])),
   );
+  const [copies, setCopies] = useState<Record<string, number>>(
+    () => Object.fromEntries(entries.map((e) => [e.key, 1])),
+  );
   const [printing, setPrinting] = useState(false);
   const [error, setError] = useState('');
 
@@ -65,25 +68,55 @@ export function BatchPrintModal({ clientId, chainDocs, triggerDocId, onClose }: 
     setChecked((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
+  function setCopyCount(key: string, n: number) {
+    setCopies((prev) => ({ ...prev, [key]: Math.min(20, Math.max(1, n || 1)) }));
+  }
+
   async function handlePrint() {
     const selected = entries.filter((e) => checked[e.key]);
     if (selected.length === 0) return;
     setPrinting(true);
     setError('');
-    // Open one placeholder tab per document *synchronously*, before any await,
-    // so every open() still counts as part of this click's user gesture (avoids
-    // popup-blocking) and each gets a unique target name (avoids the browser
-    // reusing/renavigating the same "_blank" tab across iterations, which was
-    // causing only the last document to end up visible).
-    const targets = selected.map((entry) => ({ entry, win: window.open('', `batch-print-${entry.key}`) }));
+    // Single print window, opened synchronously (before any await) so it still
+    // counts as part of this click's user gesture and isn't popup-blocked.
+    const win = window.open('', 'batch-print');
+    if (!win) { setError('Не удалось открыть окно печати — разрешите всплывающие окна'); setPrinting(false); return; }
+    win.document.open();
+    win.document.write(
+      '<!doctype html><html><head><meta charset="utf-8"><title>Пакетная печать</title>' +
+      '<style>html,body{margin:0;padding:0;}.doc-page{page-break-after:always;}' +
+      '.doc-page:last-child{page-break-after:auto;}.doc-page iframe{width:100%;border:none;display:block;}</style>' +
+      '</head><body></body></html>',
+    );
+    win.document.close();
     try {
-      for (const { entry, win } of targets) {
+      const frames: HTMLIFrameElement[] = [];
+      for (const entry of selected) {
         const res = await apiFetch(entry.url);
-        if (!res.ok) { setError(`Не удалось сформировать: ${entry.label}`); win?.close(); continue; }
+        if (!res.ok) { setError(`Не удалось сформировать: ${entry.label}`); continue; }
         const html = await res.text();
-        const blob = new Blob([html], { type: 'text/html' });
-        if (win) win.location.href = URL.createObjectURL(blob);
+        const n = copies[entry.key] ?? 1;
+        for (let i = 0; i < n; i++) {
+          const wrapper = win.document.createElement('div');
+          wrapper.className = 'doc-page';
+          const iframe = win.document.createElement('iframe');
+          wrapper.appendChild(iframe);
+          win.document.body.appendChild(wrapper);
+          iframe.srcdoc = html;
+          frames.push(iframe);
+        }
       }
+      let loaded = 0;
+      frames.forEach((f) => {
+        f.addEventListener('load', () => {
+          try {
+            const doc = f.contentWindow?.document;
+            if (doc) f.style.height = `${doc.documentElement.scrollHeight}px`;
+          } catch { /* cross-origin fallback: leave default height */ }
+          loaded += 1;
+          if (loaded === frames.length) setTimeout(() => win.print(), 200);
+        });
+      });
       onClose();
     } catch {
       setError('Ошибка соединения с сервером');
@@ -108,11 +141,25 @@ export function BatchPrintModal({ clientId, chainDocs, triggerDocId, onClose }: 
           {entries.length === 0 ? (
             <p className="text-xs text-muted-foreground">Нет доступных форм для печати</p>
           ) : entries.map((e) => (
-            <label key={e.key} className="flex items-center gap-2 text-xs text-slate-700 py-1 cursor-pointer">
-              <input type="checkbox" checked={!!checked[e.key]} onChange={() => toggle(e.key)}
-                className="h-3.5 w-3.5 rounded border-slate-300" />
-              {e.label}
-            </label>
+            <div key={e.key} className="flex items-center justify-between gap-2 text-xs text-slate-700 py-1">
+              <label className="flex items-center gap-2 cursor-pointer min-w-0">
+                <input type="checkbox" checked={!!checked[e.key]} onChange={() => toggle(e.key)}
+                  className="h-3.5 w-3.5 rounded border-slate-300 flex-shrink-0" />
+                <span className="truncate">{e.label}</span>
+              </label>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <span className="text-[10px] text-slate-400">копий</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={copies[e.key] ?? 1}
+                  disabled={!checked[e.key]}
+                  onChange={(ev) => setCopyCount(e.key, parseInt(ev.target.value, 10))}
+                  className="w-12 text-xs border border-slate-200 rounded px-1 py-0.5 text-center disabled:opacity-40 disabled:bg-slate-50"
+                />
+              </div>
+            </div>
           ))}
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>

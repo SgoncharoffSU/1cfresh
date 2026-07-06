@@ -6,7 +6,7 @@ import {
   ArrowLeft, MessageSquare, CheckSquare, FileText, Zap, ScrollText,
   MessageCircle, CheckCircle2, XCircle, Circle, Mail, RefreshCw, CalendarClock,
   Pencil, Trash2, ToggleLeft, ToggleRight, Globe, Eye, EyeOff, Copy, ExternalLink,
-  Printer, Image as ImageIcon,
+  Printer, Image as ImageIcon, X,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -353,6 +353,17 @@ function DocsTab({ clientId }: { clientId: string }) {
   const [printingAct, setPrintingAct] = useState<{ doc: ApiDocFull; kind: 'ks2' | 'ks3' } | null>(null);
   const [batchPrintDoc, setBatchPrintDoc] = useState<ApiDocFull | null>(null);
   const [counterpartyFilter, setCounterpartyFilter] = useState('');
+  const [sortField, setSortField] = useState<'number' | 'date' | 'counterparty' | 'status' | 'amount' | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  function toggleSort(field: typeof sortField) {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  }
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -394,14 +405,27 @@ function DocsTab({ clientId }: { clientId: string }) {
   }, [load]);
 
   const counterparties = useMemo(() => {
-    const byId = new Map<string, string>();
+    const byId = new Map<string, { name: string; inn: string }>();
     for (const d of docs) {
       if (d.counterparty?.id && !byId.has(d.counterparty.id)) {
-        byId.set(d.counterparty.id, d.counterparty.name || d.counterparty.id);
+        byId.set(d.counterparty.id, {
+          // Some counterparties referenced by old documents were later deleted in 1C
+          // (a live lookup 404s) — the sync leaves name empty in that case. Never fall
+          // back to the raw GUID here, it reads as garbled noise to the accountant.
+          name: d.counterparty.name || 'Без названия',
+          inn:  d.counterparty.inn || '',
+        });
       }
     }
-    return Array.from(byId, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    return Array.from(byId, ([id, v]) => ({ id, ...v })).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
   }, [docs]);
+  const [counterpartySearch, setCounterpartySearch] = useState('');
+  const counterpartyMatches = useMemo(() => {
+    const q = counterpartySearch.trim().toLowerCase();
+    if (!q) return counterparties;
+    return counterparties.filter((c) => c.name.toLowerCase().includes(q) || c.inn.includes(q));
+  }, [counterparties, counterpartySearch]);
+  const selectedCounterparty = counterparties.find((c) => c.id === counterpartyFilter);
 
   // Basis chain — Счёт → Реализация / Счёт-фактура. `docs` (not `filtered`) so a
   // parent/child on a different sub-tab is still found.
@@ -445,6 +469,37 @@ function DocsTab({ clientId }: { clientId: string }) {
 
   const total = useMemo(() => filtered.reduce((s, d) => s + d.amount, 0), [filtered]);
 
+  function docStatusLabel(doc: ApiDocFull): string {
+    if (doc.deletion_mark) return 'На удаление';
+    return doc.is_posted ? 'Проведён' : 'Не проведён';
+  }
+
+  const sorted = useMemo(() => {
+    if (!sortField) return filtered;
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const list = [...filtered];
+    list.sort((a, b) => {
+      switch (sortField) {
+        case 'number':
+          return dir * a.number.localeCompare(b.number, 'ru');
+        case 'counterparty':
+          return dir * (a.counterparty?.name || '').localeCompare(b.counterparty?.name || '', 'ru');
+        case 'status':
+          return dir * docStatusLabel(a).localeCompare(docStatusLabel(b), 'ru');
+        case 'amount':
+          return dir * (a.amount - b.amount);
+        case 'date': {
+          const ta = a.date ? new Date(a.date).getTime() : 0;
+          const tb = b.date ? new Date(b.date).getTime() : 0;
+          return dir * (ta - tb);
+        }
+        default:
+          return 0;
+      }
+    });
+    return list;
+  }, [filtered, sortField, sortDir]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full gap-2 text-xs text-muted-foreground">
@@ -474,16 +529,48 @@ function DocsTab({ clientId }: { clientId: string }) {
           ))}
         </div>
         {counterparties.length > 1 && (
-          <select
-            value={counterpartyFilter}
-            onChange={(e) => setCounterpartyFilter(e.target.value)}
-            className="text-xs border border-slate-200 rounded-lg px-2 py-1 text-slate-600 max-w-[220px]"
-          >
-            <option value="">Все контрагенты</option>
-            {counterparties.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+          <div className="relative">
+            {selectedCounterparty ? (
+              <div className="flex items-center gap-1.5 text-xs border border-blue-200 bg-blue-50 rounded-lg px-2 py-1 text-blue-700 max-w-[240px]">
+                <span className="truncate">{selectedCounterparty.name}</span>
+                <button
+                  type="button"
+                  onClick={() => { setCounterpartyFilter(''); setCounterpartySearch(''); }}
+                  className="flex-shrink-0 text-blue-400 hover:text-blue-700"
+                  title="Сбросить фильтр"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  value={counterpartySearch}
+                  onChange={(e) => setCounterpartySearch(e.target.value)}
+                  placeholder="Найти контрагента (название или ИНН)…"
+                  className="text-xs border border-slate-200 rounded-lg px-2 py-1 text-slate-600 w-[240px]"
+                />
+                {counterpartySearch && (
+                  <div className="absolute right-0 top-full mt-1 w-[280px] max-h-56 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-10">
+                    {counterpartyMatches.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-slate-400">Ничего не найдено</div>
+                    ) : counterpartyMatches.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => { setCounterpartyFilter(c.id); setCounterpartySearch(''); }}
+                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 flex flex-col"
+                      >
+                        <span className="text-slate-700 truncate">{c.name}</span>
+                        {c.inn && <span className="text-[10px] text-slate-400">ИНН {c.inn}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         )}
       </div>
 
@@ -503,18 +590,28 @@ function DocsTab({ clientId }: { clientId: string }) {
             <table className="w-full text-xs">
               <thead className="bg-slate-50 border-b border-slate-100 sticky top-0">
                 <tr>
-                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Номер</th>
-                  <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Дата</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground cursor-pointer select-none hover:text-slate-700" onClick={() => toggleSort('number')}>
+                    Номер{sortField === 'number' && (sortDir === 'asc' ? ' ▲' : ' ▼')}
+                  </th>
+                  <th className="text-left px-3 py-2.5 font-medium text-muted-foreground cursor-pointer select-none hover:text-slate-700" onClick={() => toggleSort('date')}>
+                    Дата{sortField === 'date' && (sortDir === 'asc' ? ' ▲' : ' ▼')}
+                  </th>
                   {counterparties.length > 1 && (
-                    <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Контрагент</th>
+                    <th className="text-left px-3 py-2.5 font-medium text-muted-foreground cursor-pointer select-none hover:text-slate-700" onClick={() => toggleSort('counterparty')}>
+                      Контрагент{sortField === 'counterparty' && (sortDir === 'asc' ? ' ▲' : ' ▼')}
+                    </th>
                   )}
-                  <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Статус</th>
-                  <th className="text-right px-4 py-2.5 font-medium text-muted-foreground">Сумма</th>
+                  <th className="text-left px-3 py-2.5 font-medium text-muted-foreground cursor-pointer select-none hover:text-slate-700" onClick={() => toggleSort('status')}>
+                    Статус{sortField === 'status' && (sortDir === 'asc' ? ' ▲' : ' ▼')}
+                  </th>
+                  <th className="text-right px-4 py-2.5 font-medium text-muted-foreground cursor-pointer select-none hover:text-slate-700" onClick={() => toggleSort('amount')}>
+                    Сумма{sortField === 'amount' && (sortDir === 'asc' ? ' ▲' : ' ▼')}
+                  </th>
                   <th className="px-3 py-2.5"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filtered.map((doc) => (
+                {sorted.map((doc) => (
                   <>
                   <tr
                     key={doc.id}

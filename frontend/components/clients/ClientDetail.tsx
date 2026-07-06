@@ -323,6 +323,23 @@ function DocSchedulePanel({
 
 const POLL_INTERVAL = 30_000; // 30 sec background refresh
 
+// Opens an auth-gated print form in a new tab. These routes require the accountant's
+// login (unlike the base invoice form, which is deliberately unauthenticated so it can
+// be shared with clients via Telegram) — a plain window.open(url) navigation carries no
+// Authorization header and would just 401. Fetch with the token first, then open the
+// already-fetched HTML as a blob (same technique ActPrintModal uses for КС-2/КС-3).
+async function openAuthedPrintForm(url: string) {
+  try {
+    const res = await apiFetch(url);
+    if (!res.ok) { window.alert('Не удалось сформировать документ'); return; }
+    const html = await res.text();
+    const blob = new Blob([html], { type: 'text/html' });
+    window.open(URL.createObjectURL(blob), '_blank');
+  } catch {
+    window.alert('Ошибка соединения с сервером');
+  }
+}
+
 // ─── Documents tab ─────────────────────────────────────────────────────────────
 function DocsTab({ clientId }: { clientId: string }) {
   const [docs,        setDocs]        = useState<ApiDocFull[]>([]);
@@ -537,13 +554,13 @@ function DocsTab({ clientId }: { clientId: string }) {
                                 <DropdownMenuItem onClick={() => setPrintingAct({ doc, kind: 'ks3' })}>
                                   КС-3 — Справка о стоимости
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => window.open(API.documents.upd(clientId, doc.id), '_blank')}>
+                                <DropdownMenuItem onClick={() => openAuthedPrintForm(API.documents.upd(clientId, doc.id))}>
                                   УПД
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => window.open(API.documents.schetFaktura(clientId, doc.id), '_blank')}>
+                                <DropdownMenuItem onClick={() => openAuthedPrintForm(API.documents.schetFaktura(clientId, doc.id))}>
                                   Счёт-фактура
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => window.open(API.documents.serviceAct(clientId, doc.id), '_blank')}>
+                                <DropdownMenuItem onClick={() => openAuthedPrintForm(API.documents.serviceAct(clientId, doc.id))}>
                                   Акт об оказании услуг
                                 </DropdownMenuItem>
                               </>

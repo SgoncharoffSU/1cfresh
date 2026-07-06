@@ -85,6 +85,7 @@ def _to_out(doc: OneCDocument, sent_via: Optional[str] = None) -> DocumentOut:
         synced_at=doc.synced_at,
         items=_parse_items(doc.items_json),
         comment=doc.comment or "",
+        basis_ref_key=doc.basis_key,
     )
 
 

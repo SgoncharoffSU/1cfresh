@@ -44,6 +44,8 @@ class OneCDocument(Base):
     counterparty_name = Column(String(500))
     counterparty_inn  = Column(String(20))
     contract_key      = Column(String(36), nullable=True)  # ДоговорКонтрагента_Key — links to a CONTRACT-type row
+    basis_key         = Column(String(36), nullable=True)  # ref_key of the document this one was created from
+                                                             # (SALE/FACTURA -> their source INVOICE); None for roots
     amount            = Column(Numeric(15, 2), default=0)
     is_posted         = Column(Boolean, default=False)
     deletion_mark     = Column(Boolean, default=False, nullable=False)

@@ -37,6 +37,7 @@ export interface ApiDocFull {
   synced_at:    string;
   items:        ApiDocItem[];
   comment:      string;
+  basis_ref_key?: string | null;
 }
 
 interface Props {

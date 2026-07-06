@@ -10,7 +10,6 @@ import { LogoIcon }          from '@/components/icons/LogoIcon';
 import { StoreInitializer }  from '@/components/StoreInitializer';
 import { TelegramInboxPoller } from '@/components/TelegramInboxPoller';
 import { PortalInboxPoller }   from '@/components/PortalInboxPoller';
-import { LocalDataMigrationBanner } from '@/components/LocalDataMigrationBanner';
 import { SyncStatusBar }     from '@/components/SyncStatusBar';
 import { cn, accountNumber } from '@/lib/utils';
 import { API, apiFetch } from '@/lib/api';
@@ -137,7 +136,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <StoreInitializer />
       <TelegramInboxPoller />
       <PortalInboxPoller />
-      <LocalDataMigrationBanner />
       <DemoBanner />
       <TrialBanner />
 

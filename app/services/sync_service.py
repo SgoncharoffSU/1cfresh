@@ -40,12 +40,28 @@ def _resolve_contractors(
     client: OneCODataClient,
     docs: list[dict],
 ) -> dict[str, tuple[str, str]]:
-    """Batch-resolve unique contractor GUIDs → {guid: (name, inn)}."""
-    guids = {d.get("Контрагент_Key", "") for d in docs} - {"", None}
+    """Batch-resolve unique contractor GUIDs → {guid: (name, inn)}.
+    Handles both Контрагент_Key (invoices/sales) and Owner_Key (contracts)."""
+    guids: set[str] = set()
+    for d in docs:
+        for field in ("Контрагент_Key", "Owner_Key"):
+            v = d.get(field, "")
+            if v:
+                guids.add(v)
+    guids -= {"", None}
     result: dict[str, tuple[str, str]] = {}
     for guid in guids:
         result[guid] = client.get_contractor(guid)
     return result
+
+
+_ITEMS_ENTITY = {
+    "INVOICE": "Document_СчетНаОплатуПокупателю",
+    "SALE":    "Document_РеализацияТоваровУслуг",
+}
+
+# Max individual document fetches per sync to avoid long timeouts
+_MAX_INDIVIDUAL_FETCHES = 50
 
 
 def _upsert_documents(
@@ -54,10 +70,15 @@ def _upsert_documents(
     docs: list[dict],
     doc_type: str,
     contractors: dict[str, tuple[str, str]],
+    client: "OneCODataClient | None" = None,
 ) -> int:
-    """Insert or update documents. Works with any DB (MySQL, PostgreSQL, SQLite)."""
+    """Insert or update documents. Works with any DB (MySQL, PostgreSQL, SQLite).
+    For new documents without Товары, fetches them individually from 1C (up to _MAX_INDIVIDUAL_FETCHES)."""
     if not docs:
         return 0
+
+    entity = _ITEMS_ENTITY.get(doc_type)
+    fetches_left = _MAX_INDIVIDUAL_FETCHES
 
     count = 0
     for d in docs:
@@ -71,6 +92,7 @@ def _upsert_documents(
         obj = db.query(OneCDocument).filter_by(
             tenant_id=tenant_id, ref_key=ref_key
         ).first()
+        is_new = obj is None
 
         if obj is None:
             obj = OneCDocument(tenant_id=tenant_id, ref_key=ref_key)
@@ -83,13 +105,33 @@ def _upsert_documents(
         obj.counterparty_name = cname
         obj.counterparty_inn  = cinn
         obj.contract_key      = d.get("ДоговорКонтрагента_Key") or None
+        if doc_type == "SALE":
+            # Реализация carries a direct back-reference to the счёт it was raised
+            # against — lets the app show "created from Счёт №X" without extra 1C calls.
+            obj.basis_key = d.get("СчетНаОплатуПокупателю_Key") or None
         obj.amount            = Decimal(str(d.get("СуммаДокумента", 0) or 0))
         obj.is_posted         = bool(d.get("Posted", False))
         obj.deletion_mark     = bool(d.get("DeletionMark", False))
         obj.data_version      = str(d.get("DataVersion", ""))
-        obj.items_json        = json.dumps(d.get("Товары", []), ensure_ascii=False)
         obj.comment           = str(d.get("Комментарий", "") or "")
         obj.synced_at         = _now_moscow()
+
+        # Товары не приходит в списочном запросе — берём из индивидуального
+        list_items = d.get("Товары") or []
+        if list_items:
+            obj.items_json = json.dumps(list_items, ensure_ascii=False)
+        elif (is_new or not obj.items_json or obj.items_json == "[]") \
+                and client and entity and fetches_left > 0:
+            try:
+                full = client.get_document(ref_key, entity)
+                if full:
+                    obj.items_json = json.dumps(full.get("Товары", []), ensure_ascii=False)
+                fetches_left -= 1
+            except Exception as exc:
+                logger.debug("Could not fetch items for %s: %s", ref_key, exc)
+        elif not obj.items_json:
+            obj.items_json = "[]"
+
         count += 1
 
     return count
@@ -117,6 +159,46 @@ def _delete_removed(
             db.delete(doc)
             deleted += 1
     return deleted
+
+
+def _upsert_contracts(
+    db: Session,
+    tenant_id: int,
+    contracts: list[dict],
+    contractors: dict[str, tuple[str, str]],
+) -> int:
+    """Upsert contracts from Catalog_ДоговорыКонтрагентов into onec_documents."""
+    count = 0
+    for d in contracts:
+        ref_key = d.get("Ref_Key", "")
+        if not ref_key:
+            continue
+
+        # Owner_Key = counterparty Ref_Key in Catalog_ДоговорыКонтрагентов
+        ckey = d.get("Owner_Key", "") or d.get("Контрагент_Key", "")
+        cname, cinn = contractors.get(ckey, ("", ""))
+
+        obj = db.query(OneCDocument).filter_by(tenant_id=tenant_id, ref_key=ref_key).first()
+        if obj is None:
+            obj = OneCDocument(tenant_id=tenant_id, ref_key=ref_key)
+            db.add(obj)
+
+        obj.doc_type          = "CONTRACT"
+        obj.number            = str(d.get("Description") or d.get("Наименование") or d.get("Number") or "")
+        obj.date              = _parse_date(d.get("Дата") or d.get("ДатаНачала") or d.get("Date"))
+        obj.counterparty_key  = ckey
+        obj.counterparty_name = cname
+        obj.counterparty_inn  = cinn
+        obj.amount            = Decimal(str(d.get("Сумма", 0) or d.get("СуммаДоговора", 0) or 0))
+        obj.is_posted         = False
+        obj.deletion_mark     = bool(d.get("DeletionMark", False))
+        obj.data_version      = str(d.get("DataVersion", ""))
+        obj.items_json        = json.dumps(d, ensure_ascii=False)  # store full raw data
+        obj.comment           = str(d.get("Комментарий", "") or "")
+        obj.synced_at         = _now_moscow()
+        count += 1
+
+    return count
 
 
 def sync_tenant(tenant: Tenant, db: Session) -> dict:
@@ -151,22 +233,29 @@ def sync_tenant(tenant: Tenant, db: Session) -> dict:
         logger.error("tenant=%d: failed to fetch sales: %s", tenant.id, exc)
         sales = []
 
-    all_docs = invoices + sales
+    try:
+        contracts = client.get_contracts()
+        logger.info("tenant=%d: fetched %d contracts", tenant.id, len(contracts))
+    except Exception as exc:
+        logger.error("tenant=%d: failed to fetch contracts: %s", tenant.id, exc)
+        contracts = []
+
+    all_docs = invoices + sales + contracts
     contractors = _resolve_contractors(client, all_docs)
 
-    n_inv  = _upsert_documents(db, tenant.id, invoices, "INVOICE", contractors)
-    n_sale = _upsert_documents(db, tenant.id, sales,    "SALE",    contractors)
+    n_inv      = _upsert_documents(db, tenant.id, invoices,  "INVOICE",  contractors, client)
+    n_sale     = _upsert_documents(db, tenant.id, sales,     "SALE",     contractors, client)
+    n_contract = _upsert_contracts(db, tenant.id, contracts, contractors)
 
-    # Удалить документы, которых больше нет в 1С (в пределах окна 90 дней)
-    live_invoice_keys = {d.get("Ref_Key", "") for d in invoices if d.get("Ref_Key")}
-    live_sale_keys    = {d.get("Ref_Key", "") for d in sales    if d.get("Ref_Key")}
+    live_invoice_keys  = {d.get("Ref_Key", "") for d in invoices  if d.get("Ref_Key")}
+    live_sale_keys     = {d.get("Ref_Key", "") for d in sales     if d.get("Ref_Key")}
     n_del_inv  = _delete_removed(db, tenant.id, live_invoice_keys, "INVOICE", date_from)
     n_del_sale = _delete_removed(db, tenant.id, live_sale_keys,    "SALE",    date_from)
 
     db.commit()
 
     logger.info(
-        "tenant=%d synced: %d invoices, %d sales; deleted: %d invoices, %d sales",
-        tenant.id, n_inv, n_sale, n_del_inv, n_del_sale,
+        "tenant=%d synced: %d invoices, %d sales, %d contracts; deleted: %d+%d",
+        tenant.id, n_inv, n_sale, n_contract, n_del_inv, n_del_sale,
     )
-    return {"invoices": n_inv, "sales": n_sale, "deleted": n_del_inv + n_del_sale}
+    return {"invoices": n_inv, "sales": n_sale, "contracts": n_contract, "deleted": n_del_inv + n_del_sale}

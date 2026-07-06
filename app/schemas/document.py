@@ -49,6 +49,7 @@ class DocumentOut(BaseModel):
     synced_at:     datetime
     items:         List[DocumentItemOut] = []
     comment:       str = ""
+    basis_ref_key: Optional[str] = None  # ref_key of the document this one was created from
 
     model_config = {"from_attributes": True}
 

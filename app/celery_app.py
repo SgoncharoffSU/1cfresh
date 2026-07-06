@@ -10,6 +10,7 @@ celery_app = Celery(
         "app.tasks.invoice_tasks",
         "app.tasks.sync_tasks",
         "app.tasks.schedule_tasks",
+        "app.tasks.contract_tasks",
         # telegram_polling intentionally excluded: API process handles TG polling
         # via _telegram_polling_loop in main.py to keep _messages in one process
     ],
@@ -36,6 +37,10 @@ celery_app.conf.update(
         "check-document-schedules": {
             "task": "app.tasks.schedule_tasks.check_document_schedules",
             "schedule": 60.0,  # every minute
+        },
+        "check-contract-schedules": {
+            "task": "app.tasks.contract_tasks.check_contract_schedules",
+            "schedule": 60.0,
         },
     },
 )

@@ -15,6 +15,7 @@ import { ChatView, Group } from '@/components/chat/ChatCRM';
 import { InvoicePanel, ApiDocFull } from '@/components/dashboard/InvoicePanel';
 import { ScheduleModal, DocSchedule } from '@/components/schedule/ScheduleModal';
 import { ActPrintModal } from '@/components/schedule/ActPrintModal';
+import { BatchPrintModal } from '@/components/schedule/BatchPrintModal';
 import { useClientStore } from '@/store/useClientStore';
 import { useChatStore }   from '@/store/useChatStore';
 import { useTaskStore }   from '@/store/useTaskStore';
@@ -350,6 +351,7 @@ function DocsTab({ clientId }: { clientId: string }) {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [newIds,      setNewIds]      = useState<Set<string>>(new Set());
   const [printingAct, setPrintingAct] = useState<{ doc: ApiDocFull; kind: 'ks2' | 'ks3' } | null>(null);
+  const [batchPrintDoc, setBatchPrintDoc] = useState<ApiDocFull | null>(null);
   const [counterpartyFilter, setCounterpartyFilter] = useState('');
 
   const load = useCallback(async (silent = false) => {
@@ -400,6 +402,39 @@ function DocsTab({ clientId }: { clientId: string }) {
     }
     return Array.from(byId, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
   }, [docs]);
+
+  // Basis chain — Счёт → Реализация / Счёт-фактура. `docs` (not `filtered`) so a
+  // parent/child on a different sub-tab is still found.
+  const docsById = useMemo(() => new Map(docs.map((d) => [d.id, d])), [docs]);
+  const childrenByBasis = useMemo(() => {
+    const map = new Map<string, ApiDocFull[]>();
+    for (const d of docs) {
+      if (!d.basis_ref_key) continue;
+      const list = map.get(d.basis_ref_key) ?? [];
+      list.push(d);
+      map.set(d.basis_ref_key, list);
+    }
+    return map;
+  }, [docs]);
+  const DOC_TYPE_LABEL: Record<string, string> = { INVOICE: 'Счёт', SALE: 'Реализация', FACTURA: 'Счёт-фактура', CONTRACT: 'Договор' };
+  function relatedLine(doc: ApiDocFull): string | null {
+    const parts: string[] = [];
+    const parent = doc.basis_ref_key ? docsById.get(doc.basis_ref_key) : null;
+    if (parent) parts.push(`↳ на основании ${DOC_TYPE_LABEL[parent.type] ?? parent.type} №${parent.number}`);
+    const children = childrenByBasis.get(doc.id);
+    if (children?.length) {
+      parts.push(`→ ${children.map((c) => `${DOC_TYPE_LABEL[c.type] ?? c.type} №${c.number}`).join(', ')}`);
+    }
+    return parts.length ? parts.join(' · ') : null;
+  }
+
+  function chainDocsFor(doc: ApiDocFull): ApiDocFull[] {
+    const chain = new Map<string, ApiDocFull>([[doc.id, doc]]);
+    const parent = doc.basis_ref_key ? docsById.get(doc.basis_ref_key) : null;
+    if (parent) chain.set(parent.id, parent);
+    for (const c of childrenByBasis.get(doc.id) ?? []) chain.set(c.id, c);
+    return Array.from(chain.values());
+  }
 
   const filtered = useMemo(() => {
     const sub = DOC_SUB_TABS.find((s) => s.id === subTab);
@@ -491,7 +526,12 @@ function DocsTab({ clientId }: { clientId: string }) {
                         : 'hover:bg-slate-50',
                     )}
                   >
-                    <td className={cn('px-4 py-3 font-mono font-medium', doc.deletion_mark ? 'line-through text-slate-400' : 'text-slate-800')}>{doc.number}</td>
+                    <td className={cn('px-4 py-3 font-mono font-medium', doc.deletion_mark ? 'line-through text-slate-400' : 'text-slate-800')}>
+                      {doc.number}
+                      {relatedLine(doc) && (
+                        <div className="font-sans font-normal text-[10px] text-slate-400 normal-case mt-0.5">{relatedLine(doc)}</div>
+                      )}
+                    </td>
                     <td className="px-3 py-3 text-muted-foreground">
                       {doc.date
                         ? new Date(doc.date).toLocaleString('ru-RU', {
@@ -575,6 +615,15 @@ function DocsTab({ clientId }: { clientId: string }) {
                                 Счёт-фактура
                               </DropdownMenuItem>
                             )}
+                            {(() => {
+                              const formCount: Record<string, number> = { INVOICE: 1, SALE: 4, FACTURA: 1 };
+                              const total = chainDocsFor(doc).reduce((sum, d) => sum + (formCount[d.type] ?? 0), 0);
+                              return total >= 2 ? (
+                                <DropdownMenuItem onClick={() => setBatchPrintDoc(doc)}>
+                                  Пакетная печать
+                                </DropdownMenuItem>
+                              ) : null;
+                            })()}
                           </DropdownMenuContent>
                         </DropdownMenu>
                         <button
@@ -635,6 +684,15 @@ function DocsTab({ clientId }: { clientId: string }) {
           docNumber={printingAct.doc.number}
           kind={printingAct.kind}
           onClose={() => setPrintingAct(null)}
+        />
+      )}
+
+      {batchPrintDoc && (
+        <BatchPrintModal
+          clientId={clientId}
+          chainDocs={chainDocsFor(batchPrintDoc)}
+          triggerDocId={batchPrintDoc.id}
+          onClose={() => setBatchPrintDoc(null)}
         />
       )}
     </div>

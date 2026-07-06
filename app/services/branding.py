@@ -45,7 +45,23 @@ async def load_branding_html(db: AsyncSession, client_id: Optional[str]) -> dict
 
     stamp_html = ""
     if branding.stamp_path:
-        stamp_html = f'<img class="branding-stamp" src="{_asset_url(branding.stamp_path)}" alt="Печать">'
+        # Manually uploaded, already-combined seal+signature scan — takes priority.
+        stamp_html = (
+            f'<div class="branding-stamp"><img src="{_asset_url(branding.stamp_path)}" '
+            f'alt="Печать" style="height:90px"></div>'
+        )
+    elif branding.seal_path or branding.facsimile_path:
+        # Imported separately from 1C (Catalog_Организации.ФайлПечать/ФайлФаксимильнаяПечать)
+        # — rendered together, overlapping, the same way a real seal is stamped over a signature.
+        imgs = ""
+        if branding.seal_path:
+            imgs += f'<img src="{_asset_url(branding.seal_path)}" alt="Печать" style="height:90px">'
+        if branding.facsimile_path:
+            imgs += (
+                f'<img src="{_asset_url(branding.facsimile_path)}" alt="Факсимиле подписи" '
+                f'style="height:50px;margin-left:-20px">'
+            )
+        stamp_html = f'<div class="branding-stamp">{imgs}</div>'
 
     text_header_html = text_footer_html = ""
     if branding.custom_text:

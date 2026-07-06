@@ -982,6 +982,8 @@ function BrandingTab({ clientId }: { clientId: string }) {
   const [logoUrl,      setLogoUrl]      = useState<string | null>(null);
   const [logoPosition, setLogoPosition] = useState<ClientBrandingOut['logo_position']>('top-left');
   const [stampUrl,     setStampUrl]     = useState<string | null>(null);
+  const [sealUrl,      setSealUrl]      = useState<string | null>(null);
+  const [facsimileUrl, setFacsimileUrl] = useState<string | null>(null);
   const [customText,   setCustomText]   = useState('');
   const [textPosition, setTextPosition] = useState<ClientBrandingOut['text_position']>('footer');
   const [logoFile,     setLogoFile]     = useState<File | null>(null);
@@ -990,6 +992,9 @@ function BrandingTab({ clientId }: { clientId: string }) {
   const [saving,       setSaving]       = useState(false);
   const [saved,        setSaved]        = useState(false);
   const [error,        setError]        = useState('');
+  const [importing,    setImporting]    = useState(false);
+  const [importError,  setImportError]  = useState('');
+  const [imported,     setImported]     = useState(false);
 
   useEffect(() => {
     apiFetch(API.clients.branding(clientId))
@@ -999,11 +1004,34 @@ function BrandingTab({ clientId }: { clientId: string }) {
         setLogoUrl(d.logo_url);
         setLogoPosition(d.logo_position);
         setStampUrl(d.stamp_url);
+        setSealUrl(d.seal_url);
+        setFacsimileUrl(d.facsimile_url);
         setCustomText(d.custom_text);
         setTextPosition(d.text_position);
       })
       .finally(() => setLoading(false));
   }, [clientId]);
+
+  const handleImportFrom1c = async () => {
+    setImporting(true);
+    setImportError('');
+    try {
+      const res = await apiFetch(API.clients.brandingImport1c(clientId), { method: 'POST' });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setImportError(d.detail ?? 'Ошибка импорта');
+        return;
+      }
+      setSealUrl(d.seal_url);
+      setFacsimileUrl(d.facsimile_url);
+      setImported(true);
+      setTimeout(() => setImported(false), 2000);
+    } catch {
+      setImportError('Ошибка соединения с сервером');
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -1079,6 +1107,24 @@ function BrandingTab({ clientId }: { clientId: string }) {
             onChange={(e) => setStampFile(e.target.files?.[0] ?? null)}
             className="text-xs" />
           <p className="text-[11px] text-slate-400">Изображение печати со скана — накладывается на подпись руководителя.</p>
+
+          {!stampUrl && (sealUrl || facsimileUrl) && (
+            <div className="flex items-center gap-2 mt-2">
+              {sealUrl && <img src={sealUrl} alt="Печать из 1С" className="h-14 border border-slate-100 rounded p-1" />}
+              {facsimileUrl && <img src={facsimileUrl} alt="Факсимиле из 1С" className="h-10 border border-slate-100 rounded p-1" />}
+              <span className="text-[11px] text-emerald-600">· из 1С</span>
+            </div>
+          )}
+          <div className="mt-1.5">
+            <Button size="sm" variant="outline" type="button" onClick={handleImportFrom1c} disabled={importing}>
+              {importing ? 'Импорт…' : imported ? '✓ Импортировано' : 'Импортировать печать/факсимиле из 1С'}
+            </Button>
+            {importError && <p className="text-[11px] text-red-600 mt-1">{importError}</p>}
+            <p className="text-[11px] text-slate-400 mt-1">
+              Подтянет печать и факсимиле подписи, если они уже загружены в саму организацию в 1С —
+              не заменит ручную загрузку выше, если она уже сделана.
+            </p>
+          </div>
         </div>
 
         <div className="space-y-1.5">

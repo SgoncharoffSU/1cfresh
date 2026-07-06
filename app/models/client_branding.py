@@ -15,7 +15,9 @@ class ClientBranding(Base):
                             primary_key=True)
     logo_path     = Column(String(300), nullable=True)  # relative path under UPLOAD_DIR
     logo_position = Column(String(20), nullable=False, default="top-left")  # top-left|top-center|top-right
-    stamp_path    = Column(String(300), nullable=True)  # combined organization seal + signature image
+    stamp_path    = Column(String(300), nullable=True)  # combined organization seal + signature image (manual upload)
+    seal_path     = Column(String(300), nullable=True)  # seal only, imported from 1C (Catalog_Организации.ФайлПечать)
+    facsimile_path = Column(String(300), nullable=True)  # signature facsimile only, imported from 1C
     custom_text   = Column(Text, nullable=True)
     text_position = Column(String(20), nullable=False, default="footer")  # header|footer
     updated_at    = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

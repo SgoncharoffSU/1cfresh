@@ -252,7 +252,7 @@ def _build_html(doc: OneCDocument, branding: dict) -> str:
   .branding-logo img {{ max-height: 60px; max-width: 220px; }}
   .branding-text {{ font-size: 9pt; color: #333; margin: 8px 0; white-space: pre-wrap; }}
   .footer .sign-block {{ position: relative; }}
-  .branding-stamp {{ position: absolute; left: 20px; top: -15px; height: 90px; opacity: 0.85; pointer-events: none; }}
+  .branding-stamp {{ position: absolute; left: 20px; top: -15px; display: flex; align-items: center; opacity: 0.85; pointer-events: none; }}
 </style>
 </head>
 <body>

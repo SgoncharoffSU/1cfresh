@@ -94,6 +94,7 @@ class OneCODataClient:
         amount: float,
         items: list[dict],
         is_posted: bool = False,
+        contract_key: str | None = None,
     ) -> dict:
         """
         Create СчетНаОплатуПокупателю in 1C without a number (1C auto-assigns it).
@@ -101,22 +102,15 @@ class OneCODataClient:
         is_posted=True means the document is posted (проведен) in 1C.
         """
         payload: dict = {
-            "Date":             datetime.now(_MOSCOW).strftime("%Y-%m-%dT%H:%M:%S"),
-            "Контрагент_Key":   counterparty_key,
-            "СуммаДокумента":   amount,
-            "Posted":           is_posted,
+            "Date":           datetime.now(_MOSCOW).strftime("%Y-%m-%dT%H:%M:%S"),
+            "Контрагент_Key": counterparty_key,
+            "СуммаДокумента": amount,
+            "Posted":         is_posted,
         }
-        # Replay the original line items if available
+        if contract_key:
+            payload["ДоговорКонтрагента_Key"] = contract_key
         if items:
-            clean = []
-            for i, item in enumerate(items, start=1):
-                row: dict = {"LineNumber": str(i)}
-                for key in ("Номенклатура_Key", "Количество", "Цена", "Сумма",
-                            "СтавкаНДС", "СуммаНДС", "Содержание"):
-                    if key in item:
-                        row[key] = item[key]
-                clean.append(row)
-            payload["Товары"] = clean
+            payload["Товары"] = self._build_invoice_items(items)
         return self._post("Document_СчетНаОплатуПокупателю", payload)
 
     def _patch(self, entity: str, guid: str, payload: dict) -> bool:
@@ -169,8 +163,10 @@ class OneCODataClient:
 
         1C:Fresh OData не поддерживает $filter по Date, поэтому загружаем
         все документы ($top=N) и фильтруем по дате на стороне Python.
+        $expand=Товары включает строки номенклатуры в каждом документе.
         """
-        docs = self._get("Document_СчетНаОплатуПокупателю", {"$top": top, "$format": "json"})
+        docs = self._get("Document_СчетНаОплатуПокупателю",
+                         {"$top": top, "$format": "json"})
         df = date_from.date() if isinstance(date_from, datetime) else (date_from if isinstance(date_from, date) else None)
         dt = date_to.date()   if isinstance(date_to,   datetime) else (date_to   if isinstance(date_to,   date) else None)
         return [d for d in docs if self._in_range(d, df, dt)]
@@ -184,10 +180,53 @@ class OneCODataClient:
         """
         Реализация товаров и услуг (РеализацияТоваровУслуг).
         """
-        docs = self._get("Document_РеализацияТоваровУслуг", {"$top": top, "$format": "json"})
+        docs = self._get("Document_РеализацияТоваровУслуг",
+                         {"$top": top, "$format": "json"})
         df = date_from.date() if isinstance(date_from, datetime) else (date_from if isinstance(date_from, date) else None)
         dt = date_to.date()   if isinstance(date_to,   datetime) else (date_to   if isinstance(date_to,   date) else None)
         return [d for d in docs if self._in_range(d, df, dt)]
+
+    def get_nomenclature_catalog(self, top: int = 5000) -> list[dict[str, Any]]:
+        """
+        Справочник номенклатуры (Catalog_Номенклатура).
+        Возвращает все позиции (не папки, не помеченные на удаление).
+        """
+        try:
+            items = self._get("Catalog_Номенклатура",
+                              {"$top": top, "$format": "json", "$filter": "IsFolder eq false"})
+            return [it for it in items if not it.get("DeletionMark", False)]
+        except Exception as exc:
+            logger.warning("get_nomenclature_catalog failed: %s", exc)
+            return []
+
+    _ZERO_GUID = "00000000-0000-0000-0000-000000000000"
+
+    def get_organization_files(self) -> dict[str, dict[str, str] | None]:
+        """Печать (ФайлПечать) и факсимиле подписи (ФайлФаксимильнаяПечать), если они
+        загружены в саму организацию в 1С — Catalog_Организации.ФайлПечать_Key /
+        ФайлФаксимильнаяПечать_Key ссылаются на Catalog_ОрганизацииПрисоединенныеФайлы,
+        где сам файл лежит как ФайлХранилище_Base64Data.
+        Returns {"seal": {"data_b64", "ext"} | None, "facsimile": {...} | None}.
+        """
+        result: dict[str, dict[str, str] | None] = {"seal": None, "facsimile": None}
+        try:
+            orgs = self._get("Catalog_Организации", {"$top": 1, "$format": "json"})
+        except Exception as exc:
+            logger.warning("get_organization_files: failed to list organizations: %s", exc)
+            return result
+        if not orgs:
+            return result
+        org = orgs[0]
+        for out_key, field_key in (("seal", "ФайлПечать_Key"), ("facsimile", "ФайлФаксимильнаяПечать_Key")):
+            guid = org.get(field_key)
+            if not guid or guid == self._ZERO_GUID:
+                continue
+            file_doc = self.get_document(guid, "Catalog_ОрганизацииПрисоединенныеФайлы")
+            data_b64 = file_doc.get("ФайлХранилище_Base64Data") if file_doc else None
+            ext = (file_doc or {}).get("Расширение", "").lstrip(".").lower() or "png"
+            if data_b64:
+                result[out_key] = {"data_b64": data_b64, "ext": ext}
+        return result
 
     def get_contractor(self, guid: str) -> tuple[str, str]:
         """Returns (name, inn) for a contractor GUID. Empty strings on failure."""
@@ -235,6 +274,22 @@ class OneCODataClient:
         """Обновляет реквизит «СтатусОплаты» у документа по GUID."""
         return self._patch(entity, guid, {"СтатусОплаты": status})
 
+    def get_contracts(
+        self,
+        counterparty_key: str | None = None,
+        top: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Договоры контрагентов (Catalog_ДоговорыКонтрагентов)."""
+        params = {"$top": top, "$format": "json", "$filter": "IsFolder eq false"}
+        docs = self._get("Catalog_ДоговорыКонтрагентов", params)
+        if counterparty_key:
+            docs = [d for d in docs if d.get("Owner_Key") == counterparty_key or d.get("Контрагент_Key") == counterparty_key]
+        return [d for d in docs if not d.get("DeletionMark", False)]
+
+    def get_contract_fields(self, ref_key: str) -> dict[str, Any] | None:
+        """Получить один договор со всеми полями."""
+        return self.get_document(ref_key, "Catalog_ДоговорыКонтрагентов")
+
     def get_document(self, guid: str, entity: str = "Document_СчетНаОплатуПокупателю") -> dict[str, Any] | None:
         """Получить один документ по GUID."""
         url = f"{self._base}/{entity}(guid'{guid}')?$format=json"
@@ -247,3 +302,158 @@ class OneCODataClient:
             return r.json()
         except requests.HTTPError:
             return None
+
+    # Ставки НДС, которые 1С принимает напрямую в поле СтавкаНДС строк документа.
+    # Всё остальное (например "Общая") — значение из справочника, которое
+    # 1С должен подставить сам из Номенклатуры_Key.
+    _DIRECT_VAT_RATES = frozenset({
+        "БезНДС", "НДС0",
+        "НДС10", "НДС10_110",
+        "НДС18", "НДС18_118",
+        "НДС20", "НДС20_120",
+        "НДС22", "НДС22_122",
+    })
+
+    @staticmethod
+    def _vat_for_row(vat_raw: str, has_nom_key: bool) -> str | None:
+        """Вернуть ставку НДС для строки, или None — тогда поле не передаём в 1С.
+        Если есть ключ номенклатуры — всегда пропускаем, 1С заполнит из каталога."""
+        if has_nom_key:
+            return None
+        v = str(vat_raw or "").strip()
+        if v in OneCODataClient._DIRECT_VAT_RATES:
+            return v
+        return "БезНДС"
+
+    @staticmethod
+    def _build_invoice_items(raw_items: list[dict]) -> list[dict]:
+        """Строки Товары для СчетНаОплатуПокупателю / СчетФактура."""
+        result = []
+        for i, item in enumerate(raw_items, start=1):
+            qty   = float(item.get("Количество", item.get("qty", 1)) or 1)
+            price = float(item.get("Цена",       item.get("price", 0)) or 0)
+            summa = float(item.get("Сумма",      item.get("amount", qty * price)) or qty * price)
+            nom_key = item.get("Номенклатура_Key")
+            row: dict = {
+                "LineNumber": str(i),
+                "Содержание": str(item.get("Содержание", item.get("description", "")) or ""),
+                "Количество": qty,
+                "Цена":       price,
+                "Сумма":      summa,
+            }
+            # Когда есть Номенклатура_Key — не передаём НДС, 1С заполнит из справочника
+            if not nom_key:
+                row["СуммаНДС"] = float(item.get("СуммаНДС", 0) or 0)
+            vat = OneCODataClient._vat_for_row(
+                item.get("СтавкаНДС", item.get("vat", "")), bool(nom_key)
+            )
+            if vat is not None:
+                row["СтавкаНДС"] = vat
+            if nom_key:
+                row["Номенклатура"]      = nom_key
+                row["Номенклатура_Type"] = "StandardODATA.Catalog_Номенклатура"
+            result.append(row)
+        return result
+
+    @staticmethod
+    def _build_sale_items(raw_items: list[dict], invoice_ref: str = "") -> list[dict]:
+        """Строки Товары для РеализацияТоваровУслуг (нет поля Содержание)."""
+        result = []
+        for i, item in enumerate(raw_items, start=1):
+            qty   = float(item.get("Количество", item.get("qty", 1)) or 1)
+            price = float(item.get("Цена",       item.get("price", 0)) or 0)
+            summa = float(item.get("Сумма",      item.get("amount", qty * price)) or qty * price)
+            nom_key = item.get("Номенклатура_Key")
+            row: dict = {
+                "LineNumber": str(i),
+                "Количество": qty,
+                "Цена":       price,
+                "Сумма":      summa,
+            }
+            # Когда есть Номенклатура_Key — не передаём НДС, 1С заполнит из справочника
+            if not nom_key:
+                row["СуммаНДС"] = float(item.get("СуммаНДС", 0) or 0)
+            vat = OneCODataClient._vat_for_row(
+                item.get("СтавкаНДС", item.get("vat", "")), bool(nom_key)
+            )
+            if vat is not None:
+                row["СтавкаНДС"] = vat
+            if nom_key:
+                row["Номенклатура_Key"] = nom_key
+            if invoice_ref:
+                row["СчетНаОплатуПокупателю_Key"] = invoice_ref
+            result.append(row)
+        return result
+
+    # keep old name for any external callers
+    _build_items = _build_invoice_items
+
+    def create_sale_from_invoice(
+        self,
+        invoice_ref: str,
+        is_posted: bool = False,
+        override_items: list[dict] | None = None,
+        contract_key: str | None = None,
+    ) -> dict:
+        """Создать РеализацияТоваровУслуг на основании счёта на оплату."""
+        invoice = self.get_document(invoice_ref, "Document_СчетНаОплатуПокупателю")
+        if not invoice:
+            raise ValueError(f"Invoice not found in 1C: {invoice_ref}")
+        raw_items = override_items or invoice.get("Товары") or []
+        payload: dict = {
+            "Date":                        datetime.now(_MOSCOW).strftime("%Y-%m-%dT%H:%M:%S"),
+            "Контрагент_Key":              invoice.get("Контрагент_Key", ""),
+            "СуммаДокумента":              invoice.get("СуммаДокумента", 0),
+            "Posted":                      is_posted,
+            "СчетНаОплатуПокупателю_Key":  invoice_ref,
+            "ДокументОснование_Key":       invoice_ref,
+            "ДокументОснование_Type":      "StandardODATA.Document_СчетНаОплатуПокупателю",
+        }
+        # Договор: явный параметр > унаследованный из счёта
+        _contract = contract_key
+        if not _contract:
+            inv_contract = invoice.get("ДоговорКонтрагента_Key", "")
+            if inv_contract and inv_contract != "00000000-0000-0000-0000-000000000000":
+                _contract = inv_contract
+        if _contract:
+            payload["ДоговорКонтрагента_Key"] = _contract
+        if invoice.get("Организация_Key"):
+            payload["Организация_Key"] = invoice["Организация_Key"]
+        if raw_items:
+            payload["Товары"] = self._build_sale_items(raw_items, invoice_ref)
+        return self._post("Document_РеализацияТоваровУслуг", payload)
+
+    def create_factura_from_invoice(
+        self,
+        source_ref: str,
+        is_posted: bool = False,
+        source_entity: str = "Document_РеализацияТоваровУслуг",
+        override_items: list[dict] | None = None,
+        contract_key: str | None = None,
+    ) -> dict:
+        """Создать СчетФактураВыданный на основании реализации или счёта."""
+        source = self.get_document(source_ref, source_entity)
+        if not source:
+            raise ValueError(f"Source document not found in 1C: {source_ref}")
+        raw_items = override_items or source.get("Товары") or []
+        payload: dict = {
+            "Date":                   datetime.now(_MOSCOW).strftime("%Y-%m-%dT%H:%M:%S"),
+            "Контрагент_Key":         source.get("Контрагент_Key", ""),
+            "СуммаДокумента":         source.get("СуммаДокумента", 0),
+            "ВидСчетФактуры":         "НаРеализацию",
+            "Posted":                 is_posted,
+            "ДокументОснование_Key":  source_ref,
+            "ДокументОснование_Type": f"StandardODATA.{source_entity}",
+        }
+        _contract = contract_key
+        if not _contract:
+            src_contract = source.get("ДоговорКонтрагента_Key", "")
+            if src_contract and src_contract != "00000000-0000-0000-0000-000000000000":
+                _contract = src_contract
+        if _contract:
+            payload["ДоговорКонтрагента_Key"] = _contract
+        if source.get("Организация_Key"):
+            payload["Организация_Key"] = source["Организация_Key"]
+        if raw_items:
+            payload["Товары"] = self._build_invoice_items(raw_items)
+        return self._post("Document_СчетФактураВыданный", payload)

@@ -1,10 +1,13 @@
 """Letterhead branding (logo, organization stamp+signature, custom text) for a
 client's self-generated print forms — see app/api/print_form.py and app/api/act_forms.py
 for where these get embedded."""
+import asyncio
+import base64
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_tenant, get_current_user
@@ -13,7 +16,9 @@ from app.db.database import get_db
 from app.models.client_branding import ClientBranding
 from app.models.client_contact import ClientContact
 from app.models.firm import User
+from app.models.tenant import Tenant
 from app.services.activity_log import log_activity
+from app.services.onec_odata import OneCODataClient
 
 router = APIRouter(prefix="/clients", tags=["branding"])
 
@@ -31,12 +36,14 @@ def _out(branding: Optional[ClientBranding]) -> dict:
     if not branding:
         return {
             "logo_url": None, "logo_position": "top-left",
-            "stamp_url": None,
+            "stamp_url": None, "seal_url": None, "facsimile_url": None,
             "custom_text": "", "text_position": "footer",
         }
     return {
         "logo_url": url(branding.logo_path), "logo_position": branding.logo_position,
         "stamp_url": url(branding.stamp_path),
+        "seal_url": url(branding.seal_path),
+        "facsimile_url": url(branding.facsimile_path),
         "custom_text": branding.custom_text or "", "text_position": branding.text_position,
     }
 
@@ -107,6 +114,59 @@ async def save_branding(
     await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
                         firm_id=user.firm_id, action="client.branding_update",
                         description=f"Обновлено оформление печатных форм для клиента «{client.name}»",
+                        entity_type="client", entity_id=client_id)
+    await db.commit()
+    return _out(branding)
+
+
+@router.post("/{client_id}/branding/import-from-1c")
+async def import_branding_from_1c(
+    client_id: str,
+    tenant_id: int = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pull the organization's seal (ФайлПечать) and signature facsimile
+    (ФайлФаксимильнаяПечать) straight from 1C, if the accountant already uploaded
+    them there — saves re-uploading the same files into this app."""
+    client = await _get_owned_client(db, client_id, tenant_id)
+
+    res = await db.execute(select(Tenant).where(Tenant.client_contact_id == client_id))
+    client_tenant = res.scalar_one_or_none()
+    if not client_tenant:
+        raise HTTPException(status_code=404, detail="У этого клиента не подключена 1С")
+
+    onec = OneCODataClient(
+        login=client_tenant.odata_login,
+        password=client_tenant.odata_password,
+        base_url=client_tenant.odata_url,
+    )
+    try:
+        files = await asyncio.get_running_loop().run_in_executor(None, onec.get_organization_files)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Не удалось получить данные из 1С: {exc}")
+
+    if not files.get("seal") and not files.get("facsimile"):
+        raise HTTPException(status_code=404, detail="В 1С не загружены печать/факсимиле для этой организации")
+
+    branding = await db.get(ClientBranding, client_id)
+    if branding is None:
+        branding = ClientBranding(client_id=client_id)
+        db.add(branding)
+
+    rel_dir = f"branding/{client_id}"
+    (UPLOAD_DIR / rel_dir).mkdir(parents=True, exist_ok=True)
+    for kind, out_attr in (("seal", "seal_path"), ("facsimile", "facsimile_path")):
+        file_info = files.get(kind)
+        if not file_info:
+            continue
+        rel_path = f"{rel_dir}/{kind}_from_1c.{file_info['ext']}"
+        (UPLOAD_DIR / rel_path).write_bytes(base64.b64decode(file_info["data_b64"]))
+        setattr(branding, out_attr, rel_path)
+
+    await log_activity(db, actor_type="user", actor_id=user.id, actor_name=user.name,
+                        firm_id=user.firm_id, action="client.branding_import_1c",
+                        description=f"Импортированы печать/факсимиле из 1С для клиента «{client.name}»",
                         entity_type="client", entity_id=client_id)
     await db.commit()
     return _out(branding)

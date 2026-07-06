@@ -66,6 +66,8 @@ export interface ClientBrandingOut {
   logo_url:      string | null;
   logo_position: 'top-left' | 'top-center' | 'top-right';
   stamp_url:     string | null;
+  seal_url:      string | null;
+  facsimile_url: string | null;
   custom_text:   string;
   text_position: 'header' | 'footer';
 }
@@ -143,6 +145,7 @@ export const API = {
     merge:            () => `${BASE}/api/v1/clients/merge`,
     onecConnect:      () => `${BASE}/api/v1/clients/onec-connect`,
     branding:         (id: string) => `${BASE}/api/v1/clients/${encodeURIComponent(id)}/branding`,
+    brandingImport1c: (id: string) => `${BASE}/api/v1/clients/${encodeURIComponent(id)}/branding/import-from-1c`,
   },
   chat: {
     messages:     () => `${BASE}/api/v1/chat/messages`,

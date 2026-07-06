@@ -251,7 +251,7 @@ _PAGE_STYLE = """
   .branding-logo { margin-bottom: 6px; }
   .branding-logo img { max-height: 60px; max-width: 220px; }
   .branding-text { font-size: 9pt; color: #333; margin: 8px 0; white-space: pre-wrap; }
-  .branding-stamp { position: absolute; left: 0; top: -20px; height: 90px; opacity: 0.85; pointer-events: none; }
+  .branding-stamp { position: absolute; left: 0; top: -20px; display: flex; align-items: center; opacity: 0.85; pointer-events: none; }
 </style>
 """
 

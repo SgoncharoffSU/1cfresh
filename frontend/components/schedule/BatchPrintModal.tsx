@@ -70,13 +70,19 @@ export function BatchPrintModal({ clientId, chainDocs, triggerDocId, onClose }: 
     if (selected.length === 0) return;
     setPrinting(true);
     setError('');
+    // Open one placeholder tab per document *synchronously*, before any await,
+    // so every open() still counts as part of this click's user gesture (avoids
+    // popup-blocking) and each gets a unique target name (avoids the browser
+    // reusing/renavigating the same "_blank" tab across iterations, which was
+    // causing only the last document to end up visible).
+    const targets = selected.map((entry) => ({ entry, win: window.open('', `batch-print-${entry.key}`) }));
     try {
-      for (const entry of selected) {
+      for (const { entry, win } of targets) {
         const res = await apiFetch(entry.url);
-        if (!res.ok) { setError(`Не удалось сформировать: ${entry.label}`); continue; }
+        if (!res.ok) { setError(`Не удалось сформировать: ${entry.label}`); win?.close(); continue; }
         const html = await res.text();
         const blob = new Blob([html], { type: 'text/html' });
-        window.open(URL.createObjectURL(blob), '_blank');
+        if (win) win.location.href = URL.createObjectURL(blob);
       }
       onClose();
     } catch {

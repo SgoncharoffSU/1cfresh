@@ -38,12 +38,12 @@ from app.db.database import get_db
 from app.models.client_contact import ClientContact
 from app.models.tenant import OneCDocument, Tenant
 from app.services.branding import load_branding_html
+from app.services.seller_info import resolve_seller
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tax-forms", tags=["tax-forms"])
 
-_ZERO_GUID = "00000000-0000-0000-0000-000000000000"
 _SALE_ENTITY = "Document_РеализацияТоваровУслуг"
 
 
@@ -82,64 +82,8 @@ async def _load_tax_context(db: AsyncSession, tenant_id: int, client_id: str, re
     return doc, client, rows
 
 
-_EMPTY_SELLER = {
-    "name": "", "inn": "", "kpp": "", "ogrn": "", "director_name": "",
-    "bank_account": "", "bank_name": "", "bank_corr_account": "", "bank_bik": "",
-    "without_vat": False,
-}
-
-
 async def _resolve_seller(tenant: Tenant, ref_key: str) -> dict:
-    """Seller org/bank/director, resolved live from 1C for this specific document —
-    see module docstring for the field chain. Never raises: any lookup failure
-    just leaves the corresponding fields blank so the form still renders."""
-    if not (tenant and tenant.odata_login and tenant.odata_url):
-        return dict(_EMPTY_SELLER)
-
-    result = dict(_EMPTY_SELLER)
-    try:
-        from app.services.onec_odata import OneCODataClient
-        client = OneCODataClient(login=tenant.odata_login, password=tenant.odata_password, base_url=tenant.odata_url)
-        loop = asyncio.get_running_loop()
-
-        full_doc = await loop.run_in_executor(None, client.get_document, ref_key, _SALE_ENTITY)
-        if not full_doc:
-            return result
-        result["without_vat"] = bool(full_doc.get("ДокументБезНДС"))
-
-        org_key = full_doc.get("Организация_Key")
-        director_key = full_doc.get("Руководитель_Key")
-        bank_account_key = full_doc.get("БанковскийСчетОрганизации_Key")
-
-        if org_key and org_key != _ZERO_GUID:
-            org = await loop.run_in_executor(None, client.get_document, org_key, "Catalog_Организации")
-            if org:
-                result["name"] = org.get("НаименованиеПолное") or org.get("НаименованиеСокращенное") or ""
-                result["inn"] = org.get("ИНН") or ""
-                result["kpp"] = org.get("КПП") or ""
-                result["ogrn"] = org.get("ОГРН") or ""
-                if not bank_account_key or bank_account_key == _ZERO_GUID:
-                    bank_account_key = org.get("ОсновнойБанковскийСчет_Key")
-
-        if director_key and director_key != _ZERO_GUID:
-            person = await loop.run_in_executor(None, client.get_document, director_key, "Catalog_ФизическиеЛица")
-            if person:
-                result["director_name"] = person.get("Description") or ""
-
-        if bank_account_key and bank_account_key != _ZERO_GUID:
-            acc = await loop.run_in_executor(None, client.get_document, bank_account_key, "Catalog_БанковскиеСчета")
-            if acc:
-                result["bank_account"] = acc.get("НомерСчета") or ""
-                bank_key = acc.get("Банк_Key")
-                if bank_key and bank_key != _ZERO_GUID:
-                    bank = await loop.run_in_executor(None, client.get_document, bank_key, "Catalog_Банки")
-                    if bank:
-                        result["bank_name"] = bank.get("Description") or ""
-                        result["bank_corr_account"] = bank.get("КоррСчет") or ""
-                        result["bank_bik"] = bank.get("Code") or ""
-    except Exception as exc:
-        logger.warning("tax_forms: seller resolution failed for %s: %s", ref_key, exc)
-    return result
+    return await resolve_seller(tenant, ref_key, _SALE_ENTITY)
 
 
 _PAGE_STYLE = """

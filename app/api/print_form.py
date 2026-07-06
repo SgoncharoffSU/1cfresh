@@ -1,12 +1,16 @@
 """
 HTML print form for invoices. Opens in the browser with print-ready styling.
-GET /api/v1/documents/{ref_key}/print?tenant_id=1
+GET /api/v1/documents/{ref_key}/print?client_id=... (CRM, per-client tenant)
+GET /api/v1/documents/{ref_key}/print?tenant_id=... (Telegram-shared links —
+deliberately unauthenticated, same trust model as the rest of this route: the
+ref_key GUID itself gates access, not a login, since the recipient is an
+outside client who has no CRM account).
 """
 from __future__ import annotations
 
 import json
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
@@ -16,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.models.tenant import OneCDocument, Tenant
 from app.services.branding import load_branding_html
+from app.services.seller_info import resolve_seller
 
 router = APIRouter(prefix="/documents", tags=["print"])
 
@@ -108,7 +113,13 @@ def _num_to_words(n: float) -> str:
     return f"{rub_str.capitalize()} {rub_decl} {kop_str} {kop_decl}"
 
 
-def _build_html(doc: OneCDocument, branding: dict) -> str:
+_ENTITY_BY_DOC_TYPE = {
+    "INVOICE": "Document_СчетНаОплатуПокупателю",
+    "SALE":    "Document_РеализацияТоваровУслуг",
+}
+
+
+def _build_html(doc: OneCDocument, seller: dict, branding: dict) -> str:
     items: list[dict] = []
     if doc.items_json:
         try:
@@ -265,16 +276,28 @@ def _build_html(doc: OneCDocument, branding: dict) -> str:
 
 {branding['logo_html']}
 
-<!-- Bank block placeholder -->
+<!-- Получатель платежа — наша организация (продавец), не покупатель. Реквизиты
+     подтягиваются из 1С (Catalog_Организации + банковский счёт), см. seller_info.py. -->
 <div class="bank-block">
   <table>
     <tr>
       <td class="label">Получатель:</td>
-      <td><strong>{doc.counterparty_name or "—"}</strong></td>
+      <td><strong>{seller['name'] or "—"}</strong>
+        {f"&nbsp;&nbsp;ИНН {seller['inn']}" if seller['inn'] else ""}
+        {f"&nbsp;/&nbsp;КПП {seller['kpp']}" if seller['kpp'] else ""}
+      </td>
     </tr>
     <tr>
-      <td class="label">ИНН:</td>
-      <td>{doc.counterparty_inn or "—"}</td>
+      <td class="label">Банк:</td>
+      <td>{seller['bank_name'] or "—"}{f", БИК {seller['bank_bik']}" if seller['bank_bik'] else ""}</td>
+    </tr>
+    <tr>
+      <td class="label">Р/с:</td>
+      <td>{seller['bank_account'] or "—"}</td>
+    </tr>
+    <tr>
+      <td class="label">К/с:</td>
+      <td>{seller['bank_corr_account'] or "—"}</td>
     </tr>
   </table>
 </div>
@@ -287,7 +310,9 @@ def _build_html(doc: OneCDocument, branding: dict) -> str:
   <table>
     <tr>
       <td class="label">Поставщик:</td>
-      <td></td>
+      <td><strong>{seller['name'] or "—"}</strong>
+        {f"&nbsp;&nbsp;ИНН: {seller['inn']}" if seller['inn'] else ""}
+      </td>
     </tr>
     <tr>
       <td class="label">Покупатель:</td>
@@ -330,7 +355,7 @@ def _build_html(doc: OneCDocument, branding: dict) -> str:
 <div class="footer">
   <div class="sign-block">
     {branding['stamp_html']}
-    <div>Руководитель ________________</div>
+    <div>Руководитель ________________ {seller['director_name'] or ''}</div>
     <div class="sign-line"></div>
     <div style="font-size:8pt;color:#666">подпись / расшифровка</div>
   </div>
@@ -356,19 +381,32 @@ def _build_html(doc: OneCDocument, branding: dict) -> str:
 @router.get("/{ref_key}/print", response_class=HTMLResponse)
 async def print_invoice(
     ref_key: str,
-    tenant_id: int = Query(1),
+    tenant_id: Optional[int] = Query(None),
+    client_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
+    """Deliberately unauthenticated (see module docstring) — either identifier works:
+    `client_id` from the CRM's own print button, `tenant_id` from Telegram-shared
+    links (schedule_tasks.py already stores the correct per-client tenant there)."""
+    resolved_tenant_id = tenant_id
+    if resolved_tenant_id is None and client_id:
+        res = await db.execute(select(Tenant.id).where(Tenant.client_contact_id == client_id))
+        resolved_tenant_id = res.scalar_one_or_none()
+    if resolved_tenant_id is None:
+        resolved_tenant_id = 1  # legacy default, preserves old behavior when neither is given
+
     result = await db.execute(
         select(OneCDocument).where(
             OneCDocument.ref_key == ref_key,
-            OneCDocument.tenant_id == tenant_id,
+            OneCDocument.tenant_id == resolved_tenant_id,
         )
     )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Документ не найден")
 
-    tenant = await db.get(Tenant, tenant_id)
+    tenant = await db.get(Tenant, resolved_tenant_id)
+    entity = _ENTITY_BY_DOC_TYPE.get(doc.doc_type, "Document_СчетНаОплатуПокупателю")
+    seller = await resolve_seller(tenant, ref_key, entity)
     branding = await load_branding_html(db, tenant.client_contact_id if tenant else None)
-    return HTMLResponse(content=_build_html(doc, branding))
+    return HTMLResponse(content=_build_html(doc, seller, branding))

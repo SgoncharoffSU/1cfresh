@@ -85,38 +85,35 @@ export function BatchPrintModal({ clientId, chainDocs, triggerDocId, onClose }: 
     win.document.write(
       '<!doctype html><html><head><meta charset="utf-8"><title>Пакетная печать</title>' +
       '<style>html,body{margin:0;padding:0;}.doc-page{page-break-after:always;}' +
-      '.doc-page:last-child{page-break-after:auto;}.doc-page iframe{width:100%;border:none;display:block;}</style>' +
-      '</head><body></body></html>',
+      '.doc-page:last-child{page-break-after:auto;}</style></head><body></body></html>',
     );
     win.document.close();
     try {
-      const frames: HTMLIFrameElement[] = [];
+      const parser = new DOMParser();
+      let any = false;
       for (const entry of selected) {
         const res = await apiFetch(entry.url);
         if (!res.ok) { setError(`Не удалось сформировать: ${entry.label}`); continue; }
         const html = await res.text();
+        // Parse into <head>/<body> and mount each copy in its own shadow root:
+        // content flows inline (no iframe borders/scrollbars — literally "one
+        // document after another"), while the form's own <style> stays scoped
+        // to its shadow tree so different forms' identically-named CSS classes
+        // (.title, .items, .sign-block, …) can't bleed into each other.
+        const parsed = parser.parseFromString(html, 'text/html');
+        const styleHtml = parsed.head.innerHTML;
+        const bodyHtml = parsed.body.innerHTML;
         const n = copies[entry.key] ?? 1;
         for (let i = 0; i < n; i++) {
-          const wrapper = win.document.createElement('div');
-          wrapper.className = 'doc-page';
-          const iframe = win.document.createElement('iframe');
-          wrapper.appendChild(iframe);
-          win.document.body.appendChild(wrapper);
-          iframe.srcdoc = html;
-          frames.push(iframe);
+          const host = win.document.createElement('div');
+          host.className = 'doc-page';
+          win.document.body.appendChild(host);
+          const shadow = host.attachShadow({ mode: 'open' });
+          shadow.innerHTML = styleHtml + bodyHtml;
+          any = true;
         }
       }
-      let loaded = 0;
-      frames.forEach((f) => {
-        f.addEventListener('load', () => {
-          try {
-            const doc = f.contentWindow?.document;
-            if (doc) f.style.height = `${doc.documentElement.scrollHeight}px`;
-          } catch { /* cross-origin fallback: leave default height */ }
-          loaded += 1;
-          if (loaded === frames.length) setTimeout(() => win.print(), 200);
-        });
-      });
+      if (any) setTimeout(() => win.print(), 150);
       onClose();
     } catch {
       setError('Ошибка соединения с сервером');

@@ -9,7 +9,7 @@ import {
   Printer, Image as ImageIcon, X,
 } from 'lucide-react';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { ChatView, Group } from '@/components/chat/ChatCRM';
 import { InvoicePanel, ApiDocFull } from '@/components/dashboard/InvoicePanel';
@@ -687,23 +687,23 @@ function DocsTab({ clientId }: { clientId: string }) {
                             )}
                             {doc.type === 'SALE' && (
                               <>
+                                <DropdownMenuItem onClick={() => openAuthedPrintForm(API.documents.serviceAct(clientId, doc.id))}>
+                                  Акт об оказании услуг
+                                </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => setPrintingAct({ doc, kind: 'ks2' })}>
                                   КС-2 — Акт о приёмке работ
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => setPrintingAct({ doc, kind: 'ks3' })}>
                                   КС-3 — Справка о стоимости
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => openAuthedPrintForm(API.documents.upd(clientId, doc.id))}>
-                                  УПД
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => openAuthedPrintForm(API.documents.serviceAct(clientId, doc.id))}>
-                                  Акт об оказании услуг
-                                </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => openAuthedPrintForm(API.documents.nakladnaya(clientId, doc.id))}>
                                   Накладная
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => openAuthedPrintForm(API.documents.torg12(clientId, doc.id))}>
                                   ТОРГ-12
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => openAuthedPrintForm(API.documents.upd(clientId, doc.id))}>
+                                  УПД
                                 </DropdownMenuItem>
                               </>
                             )}
@@ -716,9 +716,12 @@ function DocsTab({ clientId }: { clientId: string }) {
                               const formCount: Record<string, number> = { INVOICE: 1, SALE: 4, FACTURA: 1 };
                               const total = chainDocsFor(doc).reduce((sum, d) => sum + (formCount[d.type] ?? 0), 0);
                               return total >= 2 ? (
-                                <DropdownMenuItem onClick={() => setBatchPrintDoc(doc)}>
-                                  Пакетная печать
-                                </DropdownMenuItem>
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onClick={() => setBatchPrintDoc(doc)}>
+                                    Пакетная печать
+                                  </DropdownMenuItem>
+                                </>
                               ) : null;
                             })()}
                           </DropdownMenuContent>

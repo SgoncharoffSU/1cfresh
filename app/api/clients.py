@@ -85,6 +85,24 @@ async def _client_dict(db: AsyncSession, tenant_id: int, c: ClientContact) -> di
         )
     )
     channels = res.scalars().all()
+
+    # The "1C" ClientChannel row is written as soon as a connection is *attempted*
+    # (connect_onec keeps it even when the test ping fails, so a client can be
+    # reconnected with corrected credentials instead of starting over) — it does
+    # NOT mean the base is actually reachable. The real, up-to-date health lives on
+    # the linked Tenant.is_active flag, which is also what sync_tasks.py itself
+    # gates the periodic 1C sync on. Without this check every client that ever had
+    # a 1C connection attempted — successful or not — showed "Подключён" forever.
+    active_channels = []
+    for ch in channels:
+        if ch.channel == "1C":
+            onec_tenant = None
+            if ch.channel_ref and ch.channel_ref.isdigit():
+                onec_tenant = await db.get(Tenant, int(ch.channel_ref))
+            if not (onec_tenant and onec_tenant.is_active):
+                continue
+        active_channels.append(ch.channel)
+
     return {
         "id":             c.id,
         "name":           c.name,
@@ -92,7 +110,7 @@ async def _client_dict(db: AsyncSession, tenant_id: int, c: ClientContact) -> di
         "inn":            c.inn,
         "initials":       c.initials,
         "color":          c.color,
-        "activeChannels": [ch.channel for ch in channels],
+        "activeChannels": active_channels,
         "channelIds":     {ch.channel: ch.channel_ref for ch in channels},
         "portalLogin":    c.portal_login,
         "abonentNumber":  c.abonent_number,

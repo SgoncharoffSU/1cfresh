@@ -1005,6 +1005,17 @@ function IntegrationsTab({ clientId, clientName, activeChannels }: { clientId: s
               <span className={cn('text-xs', connected ? 'text-emerald-700 font-medium' : 'text-slate-400')}>
                 {connected ? 'Подключён' : 'Не подключён'}
               </span>
+              {key === '1C' && (
+                <Link
+                  href="/info/1c-connect"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Инструкция по подключению 1С"
+                  className="h-7 w-7 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-50 flex-shrink-0"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </Link>
+              )}
               {key === '1C' && !connected && (
                 <Button size="sm" variant="outline" className="h-7 text-xs px-2 ml-1" onClick={() => setConnecting1c(true)}>Подключить</Button>
               )}

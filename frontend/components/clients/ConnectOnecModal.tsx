@@ -142,7 +142,12 @@ export function ConnectOnecModal({ clientId, initialName, onClose, onConnected, 
                   className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="https://msk1.1cfresh.com/a/ea/XXXXXXX/odata/standard.odata"
                 />
-                <p className="text-[11px] text-slate-400 mt-1">Настройки → Интеграция → OData → Адрес сервиса</p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Настройки → Интеграция → OData → Адрес сервиса ·{' '}
+                  <a href="/info/1c-connect" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 underline">
+                    подробная инструкция
+                  </a>
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

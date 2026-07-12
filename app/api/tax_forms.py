@@ -111,6 +111,7 @@ _PAGE_STYLE = """
   table.items th { background: #f5f5f5; text-align: center; font-weight: normal; }
   table.items td.num { text-align: center; }
   table.items td.right { text-align: right; }
+  table.items.page-break { page-break-after: always; }
   .totals-row td { font-weight: bold; }
   .sign-block { margin-top: 20px; position: relative; }
   .sign-line { display: inline-block; width: 200px; border-bottom: 1px solid #000; margin: 0 8px; }
@@ -127,23 +128,55 @@ def _vat_label(raw: str) -> str:
     return VAT_LABEL.get(raw, raw or "—")
 
 
+# Conservative rows-per-sheet estimate for this table's row height on a landscape
+# A4 page. A document with fewer rows than this renders as a single page exactly
+# as before; once exceeded, rows are split across multiple <table> elements (one
+# per sheet, each repeating the column header per the "the table header must be
+# repeated on continuation sheets" convention) with a forced page break and a
+# running "Итого по листу N" subtotal row — matching the multi-page ТОРГ-12/УПД
+# behaviour real 1C printed forms use (their "ОбластьИтоговПоСтранице" template
+# area). The true grand total only appears on the final sheet.
+ROWS_PER_PAGE = 18
+
+
+def _paginate_rows(rows: list[dict], page_size: int = ROWS_PER_PAGE) -> list[list[dict]]:
+    if not rows:
+        return [[]]
+    return [rows[i:i + page_size] for i in range(0, len(rows), page_size)]
+
+
 def _items_table_html(rows: list[dict], without_vat: bool) -> tuple[str, float, float, float]:
-    """Shared 1-11-column item table used by both Счёт-фактура and УПД (status 1).
-    Returns (html, subtotal_without_vat, total_vat, grand_total)."""
-    body = ""
+    """Shared 1-11-column item table used by both Счёт-фактура и УПД (status 1).
+    Returns (html, subtotal_without_vat, total_vat, grand_total) — the three
+    totals are always the grand totals across *all* rows, regardless of how many
+    printed sheets the table was split across."""
     subtotal = vat_total = grand_total = 0.0
-    for i, r in enumerate(rows, start=1):
+    for r in rows:
         vat_amount = 0.0 if without_vat else r["vat_amount"]
-        line_total = r["amount"] + vat_amount
         subtotal += r["amount"]
         vat_total += vat_amount
-        grand_total += line_total
-        vat_cell = "без НДС" if without_vat else _vat_label(r["vat_rate"])
-        vat_amount_cell = "—" if without_vat else _fmt(vat_amount)
-        body += f"""
+        grand_total += r["amount"] + vat_amount
+
+    pages = _paginate_rows(rows)
+    html_parts = []
+    row_no = 0
+    for page_idx, page_rows in enumerate(pages):
+        is_last = page_idx == len(pages) - 1
+        body = ""
+        page_subtotal = page_vat = page_grand = 0.0
+        for r in page_rows:
+            row_no += 1
+            vat_amount = 0.0 if without_vat else r["vat_amount"]
+            line_total = r["amount"] + vat_amount
+            page_subtotal += r["amount"]
+            page_vat += vat_amount
+            page_grand += line_total
+            vat_cell = "без НДС" if without_vat else _vat_label(r["vat_rate"])
+            vat_amount_cell = "—" if without_vat else _fmt(vat_amount)
+            body += f"""
         <tr>
           <td class="num">—</td>
-          <td class="num">{i}</td>
+          <td class="num">{row_no}</td>
           <td>{r['name']}</td>
           <td class="num">шт</td>
           <td class="num">—</td>
@@ -157,10 +190,16 @@ def _items_table_html(rows: list[dict], without_vat: bool) -> tuple[str, float, 
           <td class="num">—</td>
           <td class="num">—</td>
         </tr>"""
-    if not body:
-        body = '<tr><td colspan="14" class="num" style="color:#999">Позиции не загружены</td></tr>'
-    html = f"""
-    <table class="items">
+        if not body:
+            body = '<tr><td colspan="14" class="num" style="color:#999">Позиции не загружены</td></tr>'
+
+        if is_last:
+            totals_label, t_sub, t_vat, t_grand = "Всего к оплате", subtotal, vat_total, grand_total
+        else:
+            totals_label, t_sub, t_vat, t_grand = f"Итого по листу {page_idx + 1}", page_subtotal, page_vat, page_grand
+
+        html_parts.append(f"""
+    <table class="items{'' if is_last else ' page-break'}">
       <thead>
         <tr>
           <th>А</th><th>1</th><th>1а</th><th>1б</th><th>2</th><th>3</th><th>4</th><th>5</th>
@@ -177,18 +216,19 @@ def _items_table_html(rows: list[dict], without_vat: bool) -> tuple[str, float, 
       <tbody>
         {body}
         <tr class="totals-row">
-          <td colspan="7" style="text-align:right">Всего к оплате</td>
-          <td class="right">{_fmt(subtotal)}</td>
+          <td colspan="7" style="text-align:right">{totals_label}</td>
+          <td class="right">{_fmt(t_sub)}</td>
           <td class="num">x</td>
           <td class="num">x</td>
-          <td class="right">{'—' if without_vat else _fmt(vat_total)}</td>
-          <td class="right">{_fmt(grand_total)}</td>
+          <td class="right">{'—' if without_vat else _fmt(t_vat)}</td>
+          <td class="right">{_fmt(t_grand)}</td>
           <td class="num">x</td>
           <td class="num">x</td>
         </tr>
       </tbody>
-    </table>"""
-    return html, subtotal, vat_total, grand_total
+    </table>""")
+
+    return "".join(html_parts), subtotal, vat_total, grand_total
 
 
 def _seller_buyer_header(doc: OneCDocument, client: ClientContact, seller: dict, contract_number: str, contract_date: str) -> str:
@@ -364,14 +404,26 @@ async def print_upd(
 
 def _build_torg12_html(doc: OneCDocument, client: ClientContact, rows: list[dict], seller: dict,
                         contract_number: str, contract_date: str, branding: dict) -> str:
-    body = ""
     subtotal = vat_total = 0.0
-    for i, r in enumerate(rows, start=1):
+    for r in rows:
         subtotal += r["amount"]
         vat_total += r["vat_amount"]
-        body += f"""
+    grand_total = subtotal + vat_total
+
+    pages = _paginate_rows(rows)
+    items_parts = []
+    row_no = 0
+    for page_idx, page_rows in enumerate(pages):
+        is_last = page_idx == len(pages) - 1
+        body = ""
+        page_subtotal = page_vat = 0.0
+        for r in page_rows:
+            row_no += 1
+            page_subtotal += r["amount"]
+            page_vat += r["vat_amount"]
+            body += f"""
         <tr>
-          <td class="num">{i}</td>
+          <td class="num">{row_no}</td>
           <td>{r['name']}</td>
           <td class="num">—</td>
           <td class="num">шт</td>
@@ -385,9 +437,35 @@ def _build_torg12_html(doc: OneCDocument, client: ClientContact, rows: list[dict
           <td class="right">{_fmt(r['vat_amount'])}</td>
           <td class="right">{_fmt(r['amount'] + r['vat_amount'])}</td>
         </tr>"""
-    if not body:
-        body = '<tr><td colspan="13" class="num" style="color:#999">Позиции не загружены</td></tr>'
-    grand_total = subtotal + vat_total
+        if not body:
+            body = '<tr><td colspan="13" class="num" style="color:#999">Позиции не загружены</td></tr>'
+
+        if is_last:
+            totals_label, t_sub, t_vat, t_grand = "Всего по накладной", subtotal, vat_total, grand_total
+        else:
+            totals_label, t_sub, t_vat, t_grand = f"Итого по листу {page_idx + 1}", page_subtotal, page_vat, page_subtotal + page_vat
+
+        items_parts.append(f"""
+<table class="items{'' if is_last else ' page-break'}">
+  <thead>
+    <tr>
+      <th>№</th><th>Товар</th><th>Код</th><th>Ед. изм.</th><th>Вид упак.</th>
+      <th>Мест</th><th>Масса брутто</th><th>Кол-во</th><th>Цена</th>
+      <th>Сумма без НДС</th><th>Ставка НДС</th><th>Сумма НДС</th><th>Сумма с НДС</th>
+    </tr>
+  </thead>
+  <tbody>
+    {body}
+    <tr class="totals-row">
+      <td colspan="9" style="text-align:right">{totals_label}</td>
+      <td class="right">{_fmt(t_sub)}</td>
+      <td class="num">x</td>
+      <td class="right">{_fmt(t_vat)}</td>
+      <td class="right">{_fmt(t_grand)}</td>
+    </tr>
+  </tbody>
+</table>""")
+    items_html = "".join(items_parts)
 
     return f"""<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8">
@@ -414,25 +492,7 @@ def _build_torg12_html(doc: OneCDocument, client: ClientContact, rows: list[dict
       <td class="label">от:</td><td class="fill">—</td></tr>
 </table>
 
-<table class="items">
-  <thead>
-    <tr>
-      <th>№</th><th>Товар</th><th>Код</th><th>Ед. изм.</th><th>Вид упак.</th>
-      <th>Мест</th><th>Масса брутто</th><th>Кол-во</th><th>Цена</th>
-      <th>Сумма без НДС</th><th>Ставка НДС</th><th>Сумма НДС</th><th>Сумма с НДС</th>
-    </tr>
-  </thead>
-  <tbody>
-    {body}
-    <tr class="totals-row">
-      <td colspan="9" style="text-align:right">Всего по накладной</td>
-      <td class="right">{_fmt(subtotal)}</td>
-      <td class="num">x</td>
-      <td class="right">{_fmt(vat_total)}</td>
-      <td class="right">{_fmt(grand_total)}</td>
-    </tr>
-  </tbody>
-</table>
+{items_html}
 
 <p class="small">Всего мест: — &nbsp;&nbsp; Масса груза (нетто): — &nbsp;&nbsp; Масса груза (брутто): —</p>
 <p style="margin:6px 0">{_num_to_words(grand_total)}</p>
